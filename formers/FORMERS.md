@@ -238,6 +238,145 @@ that a host cannot satisfy makes the status PARTIAL or HOST-LIMIT.
 - Examples: ledger-lang `Ref k` (indexed by `k : Kind`) and escrow-lang
   `Aggregation F` (indexed by `F : ChoiceRule`).
 
+### F16 Dependent eliminator
+
+- Formation: `elim P c1 ... cn x : P x` when `x : X`, `X` is `Sum A B` or
+  `Unit`, and `P : X -> Type k`. S7 (USER ruling S7, Q1): `X` can also be
+  a domain family with path constructors (F18) at its parameters and
+  indices, and then the motive binds the indices and the value:
+  `P : (idx) -> F params idx -> Type k`. A block sort (F19) is outside
+  `elim`.
+- Cases: for `Sum A B`, `c1 : (a : A) -> P (inl a)` and
+  `c2 : (b : B) -> P (inr b)`. For `Unit`, `c1 : P unit`. For a family, a
+  point case takes the fields and an induction binder after each recursive
+  field or path field, and gives `P idx (c params fields)`. A path case
+  gives `PathP (fun i => P idx (c .. i)) img0 img1`, and a squash case
+  gives the square over `P`.
+- Laws: `elim P f g (inl a) = f a`. `elim P f g (inr b) = g b`.
+  `elim P u unit = u`. On a family constructor, `elim` applies the case to
+  the fields and to the elims of the recursive fields; on a path
+  constructor at `r` it gives the case at `r`; on a squash at `r` and `s`
+  it gives the case at `r` and `s`. On a formal hcomp or a neutral value,
+  `elim` stays neutral (O22). Another scrutinee does not reduce.
+- Rules: another scrutinee type, a wrong case count, a wrong case type, a
+  motive without the index binders or a block sort gives `TYPE_MISMATCH`.
+  A wrong end of a path case gives `PATH_END`. `Prop` in the motive
+  telescope gives `NAME_UNKNOWN`. There is no `elim` on a `Path` (no K).
+- Examples: `examples/elim.lang` (elim on Size, Bag and Quot);
+  `orbitExt` in `examples/dao.lang`; `fromBagW` and the homotopies in
+  `examples/bagorbit.lang`.
+
+### F17 Glue and univalence
+
+- Formation: `Glue A phi (fun (_ : I) => [ k0 -> pack T0 e0, ... ]) : Type 0`
+  when `A : Type 0`, `phi : I`, each key `k : I` is in the outer context and
+  each branch is `pack T e` with `T : Type 0` and `e : Equiv T A` where its
+  key holds. The keys cover `phi` (`SYSTEM_COVER`). Two branches agree where
+  both keys hold (`SYSTEM_OVERLAP`). A branch of another type gives
+  `GLUE_EQUIV`. The tube binder must be `_` (`GLUE_BINDER`).
+- Introduction: `glue (fun (_ : I) => [ k0 -> t0, ... ]) a : Glue A phi sys`,
+  in check mode only, when `a : A` and each `t : T` where its key holds.
+  `unglue t` must be `a` where the key of `t` holds (`GLUE_BOUNDARY`).
+- Elimination: `unglue g : A` when `g : Glue A phi sys`. A term of another
+  type gives `UNGLUE_TYPE`.
+- Laws: where the key of the branch `pack T e` holds, `Glue A phi sys = T`,
+  `glue sys a = t` and `unglue g = witness e g`. `unglue (glue sys a) = a`.
+- Univalence: the domain definitions `isContr`, `fiber`, `isEquiv`, `Equiv`,
+  `idEquiv`, `isoToEquiv`, `ua` and `uaArrow` (`domain/domain.lang:92-154`).
+  `Equiv A B` is `Sigma (f : A -> B) (isEquiv A B f)`. `isoToEquiv A B f g s t
+  : Equiv A B` makes an equivalence from an isomorphism. `ua A B e :
+  Path (Type 0) A B` is the Glue line `Glue B (~i \/ i) [ ~i -> pack A e,
+  i -> pack B (idEquiv B) ]`. Transport along `ua A B e` at a closed value
+  `a` gives `witness e a`. `uaArrow` gives a path of functions over `ua A B
+  e` (agda/cubical `ua->`).
+- Kan operations: `hcomp` at a Glue type is a `glue` of the compositions in
+  the branches and in `A`. `hcomp` at `Type 0` is a Glue type. `hcomp` at
+  `Type n` with `n != 0` gives `HCOMP_UNIVERSE`. The `unglue` of an
+  `hcomp` at a Glue type composes in the base type. `elim` reduces when
+  that composition gives a constructor and stays neutral when it remains
+  stuck (`docs/PLAN.md` O22, `examples/orbit.lang` `gElim`).
+
+### F18 Indexed higher inductive family (HIIT)
+
+- Formation: `family D (p : P) : J1 -> ... -> Jk -> Type 0 := ...` in
+  `domain/domain.lang` only (kit rule R1). The type after `:` is the index
+  telescope: a Pi telescope that ends in `Type 0`. Its depth is the index
+  count. A family without `:` is uniform, as before. `Prop` and `SProp` in
+  the telescope give `NAME_UNKNOWN` (reserved, rule R4).
+- Introduction: each constructor states its result after its fields, and a
+  path constructor states it after its interval fields and before its
+  boundary: `bagNil : Bag A sz0`, `bagCons (n : Size) (a : A) (t : Bag A n)
+  : Bag A (szS n)`. A constructor with no result, a result whose head is
+  not the family at its parameters, or an end of a path constructor at
+  another index gives `HIT_INDEX`. An application takes the parameters and
+  the fields; the index comes from the result.
+- Elimination: `fold T c1 ... cn x : T` when `x : D p j`. The target `T` is
+  a constant type from the hint, as for a uniform family. A case takes the
+  fields: a recursive field at any index becomes `T`, and an index field
+  stays. A wrong case count or a missing squash case gives `TYPE_MISMATCH`.
+- Laws: at each index, the fold of a point constructor is its case at the
+  folded fields, the fold of a path constructor is its case at the
+  interval (`fold_path`), and the fold of a square is its case at both
+  intervals (`fold_square`). The fold of a formal hcomp at an indexed sort
+  is an hcomp at the target. `transp` at an indexed sort stays neutral
+  (`docs/PLAN.md` section 8, B2 safety).
+- Sets: a sort is a set only by a 2-dimensional squash constructor at each
+  index, in the form of Trunc0 squash0. No conversion makes a sort a set
+  (`PATH_UIP`).
+- Examples: `Size` (`domain/domain.lang`) and, since S3 (rule R1), the
+  indexed families `ChoiceBag n`, `OrbitN n` and `Pos n`. `Bag A` is now
+  the free commutative monoid, with no index. `examples/hiit.lang` folds a
+  bag into `Trunc0 Size`.
+  S7 adds `Pos n` (the n positions of a bag) and `Word n` (the words of
+  adjacent swaps at n) (`domain/domain.lang`).
+  `examples/bagorbit.lang` gives `bagOrbit : (k : Size) -> Equiv (OrbitN
+  k) (ChoiceBag k)`. S3 (rule R1) removes `Quot`: `OrbitN` and `ChoiceBag`
+  are families `Size -> Type 0` with no type parameter.
+
+### F19 Inductive-inductive block (QIIT)
+
+- Formation: `family A (p : P) := ... and B (p : P) : A p -> Type 0 := ...`
+  in `domain/domain.lang` only. The keyword `and` joins the sorts of a
+  block. All headers of a block bind first, then the point constructors of
+  all sorts, then the path constructors of all sorts. Thus a field can
+  name a later sort and a boundary can name a point constructor of a later
+  sort. A header (its parameters or its index types) that names its own
+  sort or a later sort of the block gives `BLOCK_ORDER`.
+- Introduction: the constructors of each sort, as in F18 for an indexed
+  sort. The head of a recursive field is a sort of the block at its
+  parameters (`DOMAIN_FAMILY` otherwise). A recursive field can be the
+  index of a later recursive field: `adopt (adoptBase : Charter)
+  (adoptRule : Ratified adoptBase)`.
+- Elimination: `fold T1 ... Tn c1 ... cm x : Ti` when `x` is a value of the
+  sort i of a block of n sorts. The first n arguments are the target
+  types, one for each sort in declaration order. Then come the cases, one
+  for each constructor of each sort, sort by sort in declaration order.
+  The value is the last argument. The sorts share the parameter telescope
+  of the scrutinee: its parameters must inhabit the telescope of each
+  sort. A wrong argument count, a missing case or a parameter mismatch
+  gives `TYPE_MISMATCH`. A one-sort family keeps the hint form of F6.
+- Laws: the fold of a constructor of the sort i is its case at the folded
+  fields. A field of the sort j folds with the same cases at `Tj`. A path
+  field folds at the sort under the path. The path and square laws of F18
+  hold at each sort. `transp` at a sort of a block stays neutral.
+- Examples: `Charter` and `Ratified c` (`domain/domain.lang`; S3 fixes the
+  rule type to `Size`, rule R1):
+  `genesis`, `adopt`, `ratify`, the path constructor `adoptTwice` (law 4
+  in the type: a second adoption of the same rule is a path from the
+  first) and the squash constructors `charterSquash` and `ratifiedSquash`.
+  `examples/qiit.lang` folds a charter into `Trunc0 Size` (`adopted`,
+  `adoptedZero`, `adoptedTwo`, `adoptedLaw`).
+
+### Kit note: Fin
+
+`Fin` is not a former. `Fin n : Type 0` when `n : Nat`. Its values are the
+Nat literals below `n` (`FIN_RANGE`). `finAdd n a b` and `finNeg n a` are the
+addition and the negation modulo `n`. A function from `Fin n` with a literal
+`n` that fails the ordinary check is checked at each literal below `n`
+(`FIN_CASE`). `Fin`, `finAdd` and `finNeg` have VIS_INTERNAL (`docs/PLAN.md`
+O23): a guest program that uses them gives `REFUSE_KIT`. Only the kit mode
+`langc --kit` admits them.
+
 ## 4. Status words
 
 | Word | Meaning |
@@ -293,7 +432,17 @@ changes, update the host file and this matrix in the same change.
 | F9 | Pi, not dependent | DONE: `compiler/program.mech:190` ("B cannot refer to a value parameter"), `SPEC.md:61-68` | DONE: built-in (`SPEC.md:55`) | DONE: `hosts/tcc-json/examples/functions.lang` | DONE in `check` and `eval`: `hosts/tcc-evm-contract/examples/functions.lang:2`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | DONE: `hosts/tcc-wasm/examples/functions.lang:2`. HOST-LIMIT: a function value at run time (`hosts/tcc-wasm/test/ir/closure.lang:3`) | DONE: `hosts/tcc-evm/examples/functions.lang:2`. HOST-LIMIT: a function value at run time (`hosts/tcc-evm/test/ir/closure.lang:3`) | DONE: `A -> B`: `hosts/tcc-evm-dao/domain/domain.lang:279` | DONE: `A -> B`; `rule : Tally -> Outcome` in each program: `hosts/tcc-evm-anchor/examples/programs/arrow-debreu.lang:14` | DONE: `hosts/tcc-js/examples/functions.lang` | DONE: `hosts/tcc-media/examples/functions.lang` | DONE: `hosts/tcc-webgpu/examples/functions.lang` |
 | F10 | Pi, dependent | PLANNED: `docs/STATUS.md:133-137` | DONE in the kernel: `Aggregation F` (`SPEC.md:83-86,103`) | DONE: `hosts/tcc-json/examples/functions.lang` | DONE in `check` and `eval` over `Type 0` and over `Nat`: `hosts/tcc-evm-contract/examples/functions.lang:8`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | DONE over `Type 0` and over `Nat`: `hosts/tcc-wasm/examples/functions.lang:8` | DONE over `Type 0` and over `Nat`: `hosts/tcc-evm/examples/functions.lang:8` | DONE: `(x : A) -> B` and the erased binder `(0 x : A)`; `cast`: `hosts/tcc-evm-dao/domain/domain.lang:246` | DONE: `(x : A) -> B` and the erased binder `(0 x : A)`: `hosts/tcc-evm-anchor/domain/domain.lang:105,248` | DONE: `hosts/tcc-js/examples/functions.lang` | DONE: `hosts/tcc-media/examples/functions.lang` | DONE: `hosts/tcc-webgpu/examples/functions.lang` |
 | F11 | Sigma | PLANNED: reserved names only (`compiler/types.mech:214`, `SPEC.md:39,183`) | PARTIAL: built, never projected; the kernel refuses Sigma eta and has no Sigma pattern, so records are `mu` families read by `match` (O10, `SPEC.md:280-288`) | DONE: `hosts/tcc-json/examples/sigma.lang` | DONE in `check` and `eval`: `hosts/tcc-evm-contract/examples/sigma.lang:3`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | DONE: `hosts/tcc-wasm/examples/sigma.lang:3` | DONE: `hosts/tcc-evm/examples/sigma.lang:3` | PARTIAL: built, never projected; no Sigma pattern and no Sigma eta, so `Config` and `Tally` are `mu` records (`hosts/tcc-evm-dao/docs/CAPABILITY.md:36-40`, `hosts/tcc-evm-dao/domain/domain.lang:183,186,251`) | DONE: `AnchorDAO F := (L : Aggregation F) * AnchorLog`, read by `.0` and `.1`, built by a pair in `anchor` and `amendDAO`: `hosts/tcc-evm-anchor/domain/domain.lang:215-216,221,251` | DONE: `hosts/tcc-js/examples/sigma.lang` | DONE: `hosts/tcc-media/examples/sigma.lang` | DONE: `hosts/tcc-webgpu/examples/sigma.lang` |
-| F12 | Eq refl, symm, trans | DONE: `compiler/checker.mech:67-122` | PARTIAL: one `Eq` family for each index type in `Type 0` (`EqNat`, `EqDec`, `EqTally`; `SPEC.md:57`) | DONE: `hosts/tcc-json/examples/equality.lang` | DONE in `check` and `eval`: `hosts/tcc-evm-contract/examples/equality.lang:4`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | DONE: `hosts/tcc-wasm/examples/equality.lang:4` | DONE: `hosts/tcc-evm/examples/equality.lang:4` | PARTIAL: one family for each index type (`EqNat`, `EqDec`, `EqTally`), each with symm and trans; no generic `Eq` (`hosts/tcc-evm-dao/domain/domain.lang:26,48,201`) | PARTIAL: one family, `EqOutcome`, with refl, symm and trans; no generic `Eq` (`hosts/tcc-evm-anchor/domain/domain.lang:174,285,290`) | DONE: `hosts/tcc-js/examples/equality.lang` | DONE: `hosts/tcc-media/examples/equality.lang` | DONE: `hosts/tcc-webgpu/examples/equality.lang` |
-| F13 | Eq transport, cong | PLANNED: reserved names (`compiler/types.mech:214`, `docs/STATUS.md:133-137`) | PARTIAL: one `transport` and one `cong` for each `Eq` family (`SPEC.md:57`) | DONE: `hosts/tcc-json/examples/equality.lang` | DONE in `check` and `eval`: `hosts/tcc-evm-contract/examples/equality.lang:8`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | DONE: `hosts/tcc-wasm/examples/equality.lang:8` | DONE: `hosts/tcc-evm/examples/equality.lang:8` | PARTIAL: one `transport` and one `cong` for each `Eq` family (`hosts/tcc-evm-dao/domain/domain.lang:29,43,51,65,204,218`) | PARTIAL: one `transport` and one `cong`, for `EqOutcome` only (`hosts/tcc-evm-anchor/domain/domain.lang:280,294`) | DONE: `hosts/tcc-js/examples/equality.lang` | DONE: `hosts/tcc-media/examples/equality.lang` | DONE: `hosts/tcc-webgpu/examples/equality.lang` |
+| F12 | Eq refl, symm, trans | DONE: `compiler/checker.mech:67-122` | PARTIAL: one `Eq` family for each index type in `Type 0` (`EqNat`, `EqDec`, `EqTally`; `SPEC.md:57`) | DONE: `hosts/tcc-json/examples/equality.lang` | DONE as `Path` since sealed-lang S3 (sealed-lang O3; the kit `Eq` is out of BUILTINS): `refl`, `sym` and the guest def `trans` (`domain/domain.lang:21`), `examples/paths.lang`, row S3. EVM output: erased (a closed path has no runtime content); a path residual at a word position gives REFUSE_LOWER (`test/lower/path-word.lang`) | DONE: `hosts/tcc-wasm/examples/equality.lang:4` | DONE: `hosts/tcc-evm/examples/equality.lang:4` | PARTIAL: one family for each index type (`EqNat`, `EqDec`, `EqTally`), each with symm and trans; no generic `Eq` (`hosts/tcc-evm-dao/domain/domain.lang:26,48,201`) | PARTIAL: one family, `EqOutcome`, with refl, symm and trans; no generic `Eq` (`hosts/tcc-evm-anchor/domain/domain.lang:174,285,290`) | DONE: `hosts/tcc-js/examples/equality.lang` | DONE: `hosts/tcc-media/examples/equality.lang` | DONE: `hosts/tcc-webgpu/examples/equality.lang` |
+| F13 | Eq transport, cong | PLANNED: reserved names (`compiler/types.mech:214`, `docs/STATUS.md:133-137`) | PARTIAL: one `transport` and one `cong` for each `Eq` family (`SPEC.md:57`) | DONE: `hosts/tcc-json/examples/equality.lang` | DONE as `Path` since sealed-lang S3 (sealed-lang O3): `cong`, and the guest defs `transport` and `subst` over `transp` (`domain/domain.lang:8,10`), `examples/equality.lang`, row S3. EVM output: erased, as F12 | DONE: `hosts/tcc-wasm/examples/equality.lang:8` | DONE: `hosts/tcc-evm/examples/equality.lang:8` | PARTIAL: one `transport` and one `cong` for each `Eq` family (`hosts/tcc-evm-dao/domain/domain.lang:29,43,51,65,204,218`) | PARTIAL: one `transport` and one `cong`, for `EqOutcome` only (`hosts/tcc-evm-anchor/domain/domain.lang:280,294`) | DONE: `hosts/tcc-js/examples/equality.lang` | DONE: `hosts/tcc-media/examples/equality.lang` | DONE: `hosts/tcc-webgpu/examples/equality.lang` |
 | F14 | Universes | DONE: `compiler/parser.mech:69-83` | PARTIAL: `Type 0`; `Type 1` only as the type of a type function (`SPEC.md:58`) | DONE: `hosts/tcc-json/examples/universes.lang` | DONE in `check` and `eval` for `Type 0` and `Type 1`, without cumulativity: `hosts/tcc-evm-contract/examples/universes.lang:4`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | DONE for `Type 0` and `Type 1`, without cumulativity: `hosts/tcc-wasm/examples/universes.lang:4` | DONE for `Type 0` and `Type 1`, without cumulativity: `hosts/tcc-evm/examples/universes.lang:4` | PARTIAL: `Type 0` and `Type 1` only; no example program uses `Type 1` (`hosts/tcc-evm-dao/src/parser.c:304`, `hosts/tcc-evm-dao/test/refusal.sh:51`) | PARTIAL: `Type 0 : Type 1`; each formation takes the maximum universe; an explicit `Type 1` annotation has no type, `TYPE_UNIVERSE` (`hosts/tcc-evm-anchor/src/check.c:908`) | DONE: `hosts/tcc-js/examples/universes.lang` | DONE: `hosts/tcc-media/examples/universes.lang` | DONE: `hosts/tcc-webgpu/examples/universes.lang` |
 | F15 | Indexed family | PARTIAL: domain only (`Ref k`, `compiler/parser.mech:186-190`); the generic former is PLANNED | DONE for a family with a fixed index type; no parameter (probe P2, `SPEC.md:60-62,103`) | DONE: a family with parameters in `domain/` (R1): `hosts/tcc-json/domain/domain.lang` | PARTIAL in `check` and `eval`: only the domain file declares an indexed family: `hosts/tcc-evm-contract/domain/domain.lang:8`. PLANNED: EVM output (`hosts/tcc-evm-contract/src/main.c:155`) | PARTIAL: only the domain file declares an indexed family: `hosts/tcc-wasm/domain/domain.lang:10` | PARTIAL: only the domain file declares an indexed family: `hosts/tcc-evm/domain/domain.lang:10` | PARTIAL, in `domain/` only: `EqNat` and `Aggregation` (indexed by `ChoiceRule`); a family with a parameter cannot appear in a term (`hosts/tcc-evm-dao/domain/domain.lang:26,235`, `hosts/tcc-evm-dao/docs/CAPABILITY.md:26`) | DONE: `EqOutcome` and `Aggregation` (indexed by `Constitution`): `hosts/tcc-evm-anchor/domain/domain.lang:174,182` | DONE: a family with parameters in `domain/` (R1): `hosts/tcc-js/domain/domain.lang` | DONE: a family with parameters in `domain/` (R1): `hosts/tcc-media/domain/domain.lang` | DONE: a family with parameters in `domain/` (R1): `hosts/tcc-webgpu/domain/domain.lang` |
+| S2 | Precompile | n/a | n/a | n/a | DONE in `check` and `eval` as opaque operations (a closed curve application stays stuck): `examples/precompile.lang`. DONE: EVM output, one STATICCALL per execution of a lowered curve statement (`src/lower.c` lower_curve, `src/evm.c` IR_STMT_PRECOMPILE); `test/precompile.sh` 18 steps; `formers/tcc-evm-contract.md` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| S3 | Paths and Kan operations | n/a | n/a | n/a | DONE in `check` and `eval`: `I`, `i0`, `i1`, `PathP`, `Path`, `refl`, `sym`, `cong`, `funExt` (check only, R29), `transp` and `hcomp` (base lines Nat, Flag, U256, Addr, Unit and Map, R27; the `m->fuel` budget, R28); the guest defs `transport`, `subst`, `J`, `JRefl` and `trans` (`domain/domain.lang:8-21`, R25): `examples/paths.lang`, `examples/kan.lang`; `build/pathtool` 19 roundtrips. EVM output: erased; a path residual at a word position gives REFUSE_LOWER (`test/lower/path-word.lang`, R24); `formers/tcc-evm-contract.md` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| S4 | HITs and QITs | n/a | n/a | n/a | DONE in `check` and `eval`: a `family` constructor with interval fields and a boundary system (HIT_BOUNDARY); `fold` with one case for each path constructor (a fold of Trunc0 or of a family with a set squash needs the isSet case; S3 removes Quot); the end rule, the formal hcomp at a HIT and `transp` along a family parameter line; S1, Trunc1, Trunc0 and Quot with isProp and isSet (`domain/domain.lang:26-49`, R32): `examples/circle.lang`, `examples/trunc.lang`, `examples/quot.lang`; `build/pathtool` 26 roundtrips. EVM output: erased; a path constructor residual or a formal hcomp at a word position gives REFUSE_LOWER (`test/lower/loop-word.lang`, R31); `formers/tcc-evm-contract.md` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| S5 | Glue and univalence | n/a | n/a | n/a | DONE in `check` and `eval`: `Glue`, `glue` and `unglue` (VIS_GUEST) with SYSTEM_COVER, GLUE_BINDER, GLUE_EQUIV, GLUE_BOUNDARY and UNGLUE_TYPE; `hcomp` at a Glue type and at `Type 0` (HCOMP_UNIVERSE above `Type 0`); the guest defs `isContr`, `fiber`, `isEquiv`, `Equiv`, `idEquiv`, `isoToEquiv`, `ua` and `uaArrow` (`domain/domain.lang:92-154`); `Fin`, `finAdd` and `finNeg` VIS_INTERNAL (O23): `examples/equiv.lang`, `examples/glue.lang`, `examples/univ.lang`, `examples/orbit.lang`; `build/pathtool` 38 rows. EVM output: erased; the `unglue` of an `hcomp` at a Glue type over a word gives REFUSE_LOWER (`test/lower/glue-word.lang`, O22); `formers/tcc-evm-contract.md` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| S6 | HIITs and QIITs | n/a | n/a | n/a | DONE in `check` and `eval`: an index telescope and constructor results on a domain `family` (HIT_INDEX); `and` blocks of sorts (BLOCK_ORDER); `fold` over an indexed sort with a constant target, and over a block with one target for each sort, the cases sort by sort in declaration order and the value (TYPE_MISMATCH for a wrong count, a missing squash case or a parameter mismatch); `transp` at an indexed or block sort stays neutral; Size, Bag, Charter and Ratified (`domain/domain.lang`): `examples/hiit.lang`, `examples/qiit.lang`; fronttool `domain` rows. EVM output: erased, no new lowering (16 lower refusals); `formers/tcc-evm-contract.md` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| S7 | DAO prelude and laws | n/a | n/a | n/a | DONE in `check` and `eval`: `elim` on a domain family with path constructors, a motive over the indices and the value, PathP path cases and square squash cases (F16; TYPE_MISMATCH for a wrong count, a motive without the index binders or a block sort, PATH_END for a wrong path case end); `elim` on a path constructor or a squash reduces at its interval points, and on a formal hcomp stays neutral; the DAO prelude `Config`, `Constitution`, `Aggregation`, `Tally`, `aggregate`, `gov` and `amend` (an inline `kernel/dao.lang`, spliced after `orbitProj` and `outcomeSet`, `src/front/front.c:26,79-85`); the proof slot `outcomeSet` and the slot `menu` (REFUSE_SIG); Pos and Word (`domain/domain.lang:64-75`): `examples/elim.lang`, `examples/dao.lang` (laws 1 to 4), `examples/bagorbit.lang` (`bagOrbit : (k : Size) -> Equiv (OrbitN k) (ChoiceBag k)`). EVM output: erased, no new lowering (16 lower refusals); `formers/tcc-evm-contract.md` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| S8 | ZK layer | n/a | n/a | n/a | DONE in `check`, `eval` and EVM output: BN254 G1 in C (`src/front/bn254.c`: host `ecAdd` and `ecMul` compute, a point off the curve traps); the host bLSAG prover and verifier with the static H_p table (`src/front/blsag.c`); the kernel splice `kernel/zk.lang` after Member, Choice and the DAO prelude (`src/front/front.c:50-55`): `Ballot_priv`, `ZKWitness`, `castPrivate`, `proveZK`, `project` and `verifyZK w c t`, a decidable family (Unit at a closed witness that passes the host check, else neutral; `zk-flip` PATH_END, `zk-redefine` REFUSE_SIG); `langc prove` writes the cast calldata: `examples/bn254.lang`, `examples/ring3.lang`, `examples/zk.lang`, `examples/zkcast.lang`. EVM output: `zkVerify` unrolls over `ecAdd`, `ecMul`, `hash`, `u256Le` and `u256Eq` for the ring size (`zk_unroll`, `src/front/eval.c`); the nullifier map `used : Map U256 Flag` keyed by hash (hash I.x I.y) pollId; the revert rows in `test/precompile.sh`; `docs/host/README.md` `zkVerify` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| CM | Cell monad (rule R1, S3) | n/a | n/a | n/a | DONE in `check` and `eval`: a domain family with a type parameter is a cell signature (one generator, the one field of type exactly the parameter; each other point field closed base data, the family at its parameters or a path in it; header aliases normalized, higher-kinded parameters and type indices refused), else REFUSE_CELL (a value parameter, a parameter in no constructor, an `and` block with a type parameter, two generators); `FreeMon` (`fmEta`, `fmUnit`, `fmMul`, `fmAssoc`, `fmUnitL`, `fmUnitR`, `fmSquash`) with the bind `fmBind` = the fold `fmFold` and `fmMap` (`domain/domain.lang`); `List`, `nil`, `cons` and `unfold` are kit only (the host ABI), a guest use gives REFUSE_CELL: `examples/freemon.lang`, `test/check/guest-list.lang`, 12 REFUSE_CELL rows of `test/fronttool.c`; S5: `sealed family Enc` (the identity cell monad, sealed: rule O7) with `encBind`, `encMap`, `encOp2`, the law defs `decrypt` (the counit) and `observe` (under `Trunc1`), else REFUSE_LAW: `examples/enc.lang`, `examples/enc-ideal.lang` (kit), 6 REFUSE_LAW rows in `test/check`, the host ElGamal `src/front/elgamal.c` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| CC | Cell comonad (the dual, S4) | n/a | n/a | n/a | DONE (S4, Cofree F: O28): `cofamily Stream` in `domain/domain.lang`, elaborated by `check_cofamily` (src/front/check.c) to the positions, the destructors, the corecursor `sCorec` and `StreamBisim`; extend `sExtend`, duplicate `sDuplicate`; the laws in `examples/cocell.lang` (counit by refl, the others by `StreamBisim`) | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| K4a0 | Map | n/a | n/a | n/a | DONE in `check`, `eval` and EVM output: `mapEmpty`, `mapGet`, `mapSet` over word keys and word values, one storage slot per key at keccak256(key . slot): `examples/map.lang`, `docs/host/README.md` section `Maps` | n/a | n/a | n/a | n/a | n/a | n/a | n/a |

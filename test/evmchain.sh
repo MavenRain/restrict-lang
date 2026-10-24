@@ -11,7 +11,7 @@ config='{"chainId":1,"homesteadBlock":0,"eip150Block":0,"eip155Block":0,"eip158B
 # keccak HEX: keccak256 of the bytes HEX (CALLDATACOPY, SHA3, RETURN of 32 bytes).
 keccak() { evm run --code 365f5f37365f205f5260205ff3 --input "$1" 2>&1 | cut -c3-; }
 # sel TEXT: the selector of the signature TEXT.
-sel() { keccak "$(printf '%s' "$1" | od -An -v -tx1 | tr -d ' \n')" | cut -c1-8; }
+sel() { keccak "$(printf '%s' "$1" | od -v -An -tx1 | tr -d ' \n')" | cut -c1-8; }
 # pad H: H as 64 hex digits.
 pad() { printf '%64s' "$1" | tr ' ' 0; }
 
@@ -36,7 +36,7 @@ word() {
 # from the `langc abi` line of NAME (C-K4-16): Nat uint64, Flag bool, U256
 # uint256 and Addr address. Env and State are not arguments of the call.
 types() {
-  build/langc abi "$1" --text >"$tmp/types" || return 1
+  build/langc --kit abi "$1" --text >"$tmp/types" || return 1
   awk -v n="$2" '$3 != "event" && index($2, n "(") == 1 {
     s = substr($2, length(n) + 2)
     print substr(s, 1, length(s) - 1)
@@ -133,7 +133,7 @@ genesis() {
 # new account, tmp/raw and tmp/got its storage.
 deploy() {
   genesis 0 ''
-  _hex=$(build/langc build "$1") || return 1
+  _hex=$(build/langc --kit build "$1") || return 1
   evm run --prestate "$tmp/pre.json" --create --code "$_hex" --dump >"$tmp/dump" 2>&1 || return 1
   awk '$1 == "\"code\":" { v = $2; gsub(/[",]/, "", v); print tolower(substr(v, 3)); exit }' "$tmp/dump" >"$tmp/code"
   [ -s "$tmp/code" ] || return 1

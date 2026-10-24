@@ -7,6 +7,7 @@
 
 #include "front/check.h"
 #include "front/front.h"
+#include "front/writer.h"
 #include "lower.h"
 #include "target.h"
 
@@ -18,7 +19,9 @@ typedef enum {
   CMD_RUN,
   CMD_IR,
   CMD_ABI,
-  CMD_BUILD
+  CMD_BUILD,
+  CMD_PROVE,
+  CMD_CONTRACT
 } Command;
 
 typedef struct {
@@ -31,6 +34,8 @@ typedef struct {
   const char *out_path;
   int runtime;
   int json;
+  CheckMode mode; /* orbit-lang S3: --kit selects the kit mode */
+  ContractOptions contract; /* orbit-lang S9 B1: --ring and --start */
 } Options;
 
 static const struct {
@@ -43,15 +48,20 @@ static const struct {
   {"ir", CMD_IR},
   {"abi", CMD_ABI},
   {"build", CMD_BUILD},
+  {"prove", CMD_PROVE},
+  {"contract", CMD_CONTRACT},
 };
 
 static int usage(FILE *err) {
-  fputs("usage: langc check PROG\n"
-        "       langc eval PROG NAME [ARGS...]\n"
-        "       langc run PROG SCRIPT\n"
-        "       langc ir PROG\n"
-        "       langc abi PROG [--text]\n"
-        "       langc build PROG [-o OUT] [--runtime]\n", err);
+  fputs("usage: langc [--kit] check PROG\n"
+        "       langc [--kit] eval PROG NAME [ARGS...]\n"
+        "       langc [--kit] run PROG SCRIPT\n"
+        "       langc [--kit] ir PROG\n"
+        "       langc [--kit] abi PROG [--text]\n"
+        "       langc [--kit] build PROG [-o OUT] [--runtime]\n"
+        "       langc [--kit] prove PROG NAME [POLL]\n"
+        "       langc contract PROG [--ring X1 Y1 ... Xn Yn] [--start O]\n"
+        "--kit: the kit mode, the trusted test scope of the kit gate\n", err);
   return 2;
 }
 
@@ -73,6 +83,22 @@ static int parse_build_options(int argc, char **argv, Options *opt, Diag *diag) 
     opt->out_path = is_out ? argv[i + 1] : opt->out_path;
     opt->runtime |= is_runtime;
     i += is_out;
+  }
+  return 1;
+}
+
+/* --ring takes the words up to the next option, --start one word. */
+static int parse_contract_options(int argc, char **argv, Options *opt, Diag *diag) {
+  for (int i = 3; i < argc; i++) {
+    int is_start = strcmp(argv[i], "--start") == 0 && i + 1 < argc;
+    int is_ring = strcmp(argv[i], "--ring") == 0 && opt->contract.ring == NULL;
+    int words = 0;
+    if (!is_start && !is_ring) return diag_fail(diag, "USAGE", NULL, "unknown contract argument '%s'", argv[i]);
+    while (is_ring && i + 1 + words < argc && strncmp(argv[i + 1 + words], "--", 2) != 0) words++;
+    opt->contract.start = is_start ? argv[i + 1] : opt->contract.start;
+    opt->contract.ring = is_ring ? argv + i + 1 : opt->contract.ring;
+    opt->contract.ring_words = is_ring ? words : opt->contract.ring_words;
+    i += is_start + words;
   }
   return 1;
 }
@@ -104,6 +130,15 @@ static int parse_options(int argc, char **argv, Options *opt, Diag *diag) {
       return 1;
     case CMD_BUILD:
       return parse_build_options(argc, argv, opt, diag);
+    case CMD_PROVE:
+      if (argc < 4) return diag_fail(diag, "USAGE", NULL, "prove needs a definition name");
+      if (argc > 5) return diag_fail(diag, "USAGE", NULL, "prove takes only a poll id after the name");
+      opt->entry = argv[3];
+      opt->args = argv + 4;
+      opt->arg_count = argc - 4;
+      return 1;
+    case CMD_CONTRACT:
+      return parse_contract_options(argc, argv, opt, diag);
   }
   return 0;
 }
@@ -131,6 +166,8 @@ static const char *command_word(Command command) {
     case CMD_IR: return "ir";
     case CMD_ABI: return "abi";
     case CMD_BUILD: return "build";
+    case CMD_PROVE: return "prove";
+    case CMD_CONTRACT: return "contract";
   }
   return "?";
 }
@@ -171,11 +208,14 @@ static int output_command(Machine *m, const Options *opt, Diag *diag) {
 static int run(const Options *opt, Arena *arena, Diag *diag) {
   char *text = NULL;
   size_t len = 0;
+  if (opt->command == CMD_CONTRACT && opt->mode == CHECK_KIT) {
+    return diag_fail(diag, "USAGE", NULL, "contract reads a guest program, so it takes no --kit") + 2;
+  }
   if (!read_source(arena, opt->prog_path, &text, &len, diag)) return 2;
   DeclList decls;
   if (!front_load(arena, opt->prog_path, text, len, &decls, diag)) return 1;
   Machine machine;
-  if (!check_program(arena, &decls, &machine, diag)) return 1;
+  if (!check_program(arena, &decls, &machine, diag, opt->mode)) return 1;
   switch (opt->command) {
     case CMD_CHECK:
       puts("ok");
@@ -188,9 +228,15 @@ static int run(const Options *opt, Arena *arena, Diag *diag) {
       if (!read_source(arena, opt->script_path, &script, &script_len, diag)) return 2;
       return run_command(&machine, opt->script_path, script, script_len, stdout);
     }
+    case CMD_PROVE:
+      signal(SIGPIPE, SIG_IGN);
+      return prove_command(&machine, opt->entry, opt->arg_count == 1 ? opt->args[0] : NULL, stdout, stderr);
     case CMD_BUILD:
     case CMD_ABI:
       return output_command(&machine, opt, diag);
+    case CMD_CONTRACT:
+      signal(SIGPIPE, SIG_IGN);
+      return contract_command(arena, &machine, opt->prog_path, text, len, &opt->contract, stdout);
     case CMD_IR:
       break;
   }
@@ -202,10 +248,12 @@ int main(int argc, char **argv) {
   Diag diag;
   diag_init(&diag);
   Options opt;
-  if (!parse_options(argc, argv, &opt, &diag)) {
+  int kit = argc > 1 && strcmp(argv[1], "--kit") == 0;
+  if (!parse_options(argc - kit, argv + kit, &opt, &diag)) {
     diag_print(&diag, stderr);
     return usage(stderr);
   }
+  opt.mode = kit ? CHECK_KIT : CHECK_GUEST;
   Arena arena;
   arena_init(&arena, ARENA_LIMIT_BYTES);
   int status = run(&opt, &arena, &diag);

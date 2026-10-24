@@ -1,4 +1,6 @@
 -- State field restrictions apply to normalized types, including nested aliases.
+-- Bundle stays on the kit List (S3): a state field is first order, and a
+-- FreeMon field gives REFUSE_STATE.
 def BalanceWord : Type 0 := U256
 def ClockCount : Type 0 := Nat
 def Bundle : (A : Type 0) -> Type 0 := fun A => Prod (Option A) (List A)

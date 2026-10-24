@@ -1,6 +1,16 @@
 # tcc-evm-contract
 
-The TinyCC host kit of retainer-lang. It compiles the contract language to EVM bytecode.
+The TinyCC host kit. lang-template made it for retainer-lang, and orbit-lang uses it. intent-lang S2 ports it from orbit-lang 2162fb2, and restrict-lang S2 ports it from intent-lang ef5abe8. It compiles the contract language to EVM bytecode.
+
+In orbit-lang S3, `langc` checks guest programs by default. Kit types,
+operations, literals, contracts and events require `--kit` before the
+command. For example, `build/langc --kit run examples/contract.lang
+test/run/basic.script` runs the kit contract, while `build/langc check
+examples/signature.lang` checks the guest signature example. Without
+`--kit`, a kit example exits 1 with `REFUSE_KIT`. All contract examples
+and abbreviated contract commands in this guide use kit mode. The gate
+selects modes from the `kit.txt` lists; `--kit` is the trusted kit test
+scope described in `docs/PLAN.md`, section 8.
 
 ## Origin
 
@@ -24,7 +34,10 @@ The TinyCC host kit of retainer-lang. It compiles the contract language to EVM b
 | K4b | Entries, dispatch and call data decode | Done |
 | K4c | EVM views, logs, ABI and List writes | Done |
 | K4d | Token calls (pay and pull) and the differential test | Done |
-| After K4d | None: retainer-lang closes at K4d | Closed |
+| After K4d | None: the kit slices end at K4d; the orbit-lang slices follow | Closed |
+| S2 | sealed-lang S2 port: base span: `natDiv`, `natMod`, `hash`, `addrToU256`, `ecrecover`, `ecAdd`, `ecMul`, `ecPairing`; four kit operations pruned | Done |
+| S2 | sealed-lang S3 port: interval paths: `I`, `PathP`, `Path`, `refl`, `sym`, `cong`, `funExt`, `transp`, `hcomp`; the kit `Eq` removed | Done |
+| S2 | sealed-lang S4 port: HITs and QITs: path constructors in `family`, `fold` with path cases, S1, Trunc1, Trunc0 and Quot in `domain/domain.lang` (intent-lang S3 removes Quot, rule R1); erased at a word position | Done |
 
 
 ## U256 and Addr (slice K2)
@@ -48,11 +61,8 @@ Prelude names:
 |------|------|--------|
 | `u256Add` | `U256 -> U256 -> U256` | The sum. An overflow past 2^256 - 1 traps. |
 | `u256Sub` | `U256 -> U256 -> U256` | The difference. The result stops at 0. |
-| `u256Mul` | `U256 -> U256 -> U256` | The product. An overflow traps. |
-| `u256Div` | `U256 -> U256 -> U256` | The quotient, rounded down. Division by 0 traps. |
 | `u256Le` | `U256 -> U256 -> Flag` | `flagYes` when the first is less than or equal to the second. |
 | `u256Eq` | `U256 -> U256 -> Flag` | `flagYes` when the two are equal. |
-| `u256Min` | `U256 -> U256 -> U256` | The smaller of the two. |
 | `toU256` | `Nat -> U256` | The same number as a U256. This is the only conversion. |
 | `addrEq` | `Addr -> Addr -> Flag` | `flagYes` when the two addresses are equal. |
 
@@ -90,7 +100,7 @@ state State := makeState (owner : Addr) (held : U256) history (earned : U256) (c
 - The word `history` marks each field of the next `(...)` group as a history field. A history field must have the type `Nat` or `U256`.
 - `history` is not a reserved word. It has this function only in the field list of a state.
 - Each field name is a projection, as in a family. For example, `held s` is the `held` field of the state `s`.
-- If a state does not obey these rules, the checker gives `REFUSE_STATE`. A `family` in a program is still `REFUSE_DATA`.
+- If a state does not obey these rules, the checker gives `REFUSE_STATE`. A `family` in a program is still `REFUSE_DATA`. A domain family with a type parameter that is not a cell signature gives `REFUSE_CELL` (rule R1, S3). A guest `List`, `nil`, `cons` or `unfold` also gives `REFUSE_CELL`: `List` is the kit host ABI, and a guest program uses `FreeMon` in its place. An index telescope and an `and` block are also for `domain/domain.lang` only (orbit-lang S6). A state with an index telescope gives `REFUSE_STATE`.
 
 The type of a definition gives its role. There is no keyword for a role.
 
@@ -162,7 +172,7 @@ The exit codes of `langc run`:
 
 ## Maps (slice K4a0)
 
-`Map K V` is a finite map. K4a0 adds it to the front end only (`langc check`, `langc eval` and `langc run`). There is no EVM code for a Map yet.
+`Map K V` is a finite map. K4a0 adds it to the front end (`langc check`, `langc eval` and `langc run`). K4a lowers Map state fields to EVM storage; see `EVM output` below.
 
 - The key type K must be Nat, U256 or Addr. The value type V must be Nat, Flag, U256 or Addr. Other types give REFUSE_MAP.
 - `mapEmpty` is the empty map. `mapGet m k` gives the value at the key k. `mapSet m k v` gives the map with the value v at the key k.
@@ -277,12 +287,54 @@ The other refusals of `langc build` (exit 1, no output):
 
 `build/buildtool` checks the 37-byte runtime of a contract with no entry, the EIP-170 runtime limit in the two output modes, the EVM_SELECTOR refusal (before any output) and IO_WRITE with exit 2 for a closed stdout pipe.
 
+## The base span (sealed-lang S2, ported in orbit-lang S2)
+
+Slice S2 of sealed-lang adds eight operations and removes four. `langc eval` keeps the four curve operations stuck (opaque). `test/precompile.sh` checks them on the chain with `evm` (18 steps).
+
+| Name | Type | Result |
+|------|------|--------|
+| `natDiv` | `Nat -> Nat -> Nat` | The floor of the quotient. A divisor 0 traps. |
+| `natMod` | `Nat -> Nat -> Nat` | The remainder. A divisor 0 traps. |
+| `hash` | `U256 -> U256 -> U256` | KECCAK256 of the two words, packed as 64 bytes. `langc eval` computes it with `src/keccak.c`. |
+| `addrToU256` | `Addr -> U256` | The address as a word (the low 160 bits). The one conversion from `Addr`. |
+| `ecrecover` | `U256 -> Nat -> U256 -> U256 -> Addr` | The signer of the hash from `v`, `r` and `s` (precompile 1). An invalid signature gives the address 0. A closed call computes in `langc eval` by the 0x01 rules, high s accepted (S7, `src/front/secp256k1.c`); an open argument is stuck. |
+| `ecAdd` | `Prod U256 U256 -> Prod U256 U256 -> Prod U256 U256` | The sum of two BN254 G1 points (precompile 6). A point that is not on the curve reverts. Closed points compute in `langc eval` (S8 B1, `src/front/bn254.c`); an open argument is stuck. |
+| `ecMul` | `Prod U256 U256 -> U256 -> Prod U256 U256` | The scalar product of a G1 point (precompile 7). Closed points compute in `langc eval` (S8 B1, `src/front/bn254.c`); an open argument is stuck. |
+| `ecPairing` | `List (Prod G1 G2) -> Flag` | `flagYes` when the pairing product is one (precompile 8). G1 is `Prod U256 U256`. G2 is `Prod (Prod U256 U256) (Prod U256 U256)` in the EIP-197 word order (x_im, x_re, y_im, y_re). The list must be a closed `cons` chain at build; an open list gives REFUSE_LOWER. Stuck in `langc eval`. |
+| `zkHp` | `Prod U256 U256 -> Prod U256 U256` | H_p of a G1 point for the bLSAG ring signature (S8 B2a, `src/front/blsag.c`): try and increment from counter 0. The zk ops are kit only and `langc eval` only (no EVM form). |
+| `zkKey` | `Nat -> U256` | The test key hash(tag, i) mod r. |
+| `zkDigest` | `List (Prod U256 U256) -> U256` | The ring digest D: a hash fold over the ring points. |
+| `zkSign` | `List (Prod U256 U256) -> U256 -> U256 -> U256 -> List U256` | `zkSign ring x pollId choice`: the words c_1, s_1 to s_n, I.x, I.y. Requires 0 < x < r and x G in the ring, else a trap. Deterministic scalars bind the ring digest and separate private nonce and public response roles. |
+| `zkVerify` | `List (Prod U256 U256) -> U256 -> U256 -> List U256 -> Flag` | `zkVerify ring pollId choice sig`: `flagYes` when the chain closes, each s_i is below r and I is not (0, 0). A key image off the curve traps. |
+
+The ZK surface of the design signature (S8 B2b): the kernel splices `kernel/zk.lang` after `Member`, `Choice` and the DAO prelude. It defines `Ballot_priv`, `ZKWitness`, `castPrivate`, `proveZK`, `project` and `verifyZK` over the internal carriers `ZkBallot Choice` and `ZkWitness`; the internal ops `zkCast`, `zkProve`, `zkProject` and `zkCheck` are not in scope of a program or the kit. A member and a choice go to the host by constructor index (`Unit` has the one index 0, `inl` counts before `inr` in a `Sum`, a `Fin` value is its number, and `Pos n` numbers `posFirst` as 0 and adds 1 for each `posNext`); the poll id is 0. Indices above 2^64 - 1 leave signing and verification stuck rather than wrapping. `project (castPrivate m c)` reads the stored choice c even under binders. The internal ballot carrier is indexed by its choice type, so `zkProject C b` requires `b : ZkBallot C`. Transport along a varying choice type stays neutral. `proveZK b` is the witness: the word list of the poll id, then c_1, s_1 to s_n, I.x and I.y, so it equals `cons 0u` of the `zkSign` list of the same ring, member and choice. `verifyZK w c t` reduces to `Unit` when the host accepts the witness for the choice c, and stays neutral (stuck) otherwise; the tally t is unread in S8. A program that defines one of the six names gets REFUSE_SIG. See `examples/ring3.lang` and `examples/dao.lang` (b0, w0, c0, complete).
+
+`langc [--kit] prove PROG NAME [POLL]` (S8 B2c) prints the ZK calldata words of the definition NAME of PROG. The definition must be a private ballot, the value of `castPrivate m c` (type `Ballot_priv`); a `ZKWitness` definition is refused, since `langc eval NAME` prints its word list already. The words are the choice (the constructor index of c), then c_1, s_1 to s_n, I.x and I.y, one per line in the eval word form (decimal digits, then `u`): n + 4 lines for a ring of n members. POLL is the poll id as a U256 word (`7u`); absent means `0u`, the host's poll id, so `prove PROG NAME` prints the words of `proveZK NAME` after its first word with a `1u` choice line in front for `inr unit`. The poll id is the argument and is not printed. Refusals and exit codes: EVAL_ENTRY (no definition NAME) 1, PROVE_BALLOT (the value is not a private ballot: a witness list, a lambda or a stuck term) 1, PROVE_OPEN (the member type is not finite, or m or c has no constructor index) 1, EVAL_ARGS (POLL is not a U256 word) 2, USAGE (no NAME, or more than one word after NAME) 2. A sign failure prints `trap` on stdout and `langc: EVAL_OVERFLOW: NAME: ...` on stderr at exit 0, as `langc eval` does. The rows are in `test/prove/expect.txt` (`FILE NAME [POLL] => WORDS`).
+
+If `langc prove` cannot write or flush stdout, it reports `IO_WRITE` and exits 2, including for a broken pipe.
+
+EVM form: a residual curve application lowers to an IR_STMT_PRECOMPILE statement that executes one STATICCALL to its precompile (`lower_curve` in `src/lower.c`, IR_STMT_PRECOMPILE in `src/evm.c`). The input words use the data region after the output blocks. The output words go in a block that is stored 0 before each call. A STATICCALL that returns 0 reverts with empty data. `first` and `second` of a curve value read the two output words. Repeated uses of the same residual value in one block, or in nested blocks after its statement, reuse the output. Uses in separate `if` arms emit separate statements; a statement in a fold body executes once per element. Removed in sealed-lang S2 (R19): `natMul`, `u256Mul`, `u256Div` and `u256Min`; a program that names one gets NAME_UNKNOWN.
+
+ZK verify form (S8 B3a): a `zkVerify` whose ring is closed but whose poll id, choice or signature words are open unrolls in the evaluator (`zk_unroll` in `src/front/eval.c`) to a term over `ecAdd`, `ecMul`, `hash`, `u256Le`, `u256Eq`, `first`, `second`, `pair` and `flagIf`: the chain of `front/blsag.c` written out for the ring size n, L_i = ecAdd (ecMul g s_i) (ecMul P_i c_i), R_i = ecAdd (ecMul H_i s_i) (ecMul I c_i) and c_(i+1) the challenge fold over tag, D, poll id, choice, I.x, I.y, L_i, R_i. The ring points P_i, the H_i table, D, the tag and r minus 1 are closed words of the term, so they are PUSH constants of the bytecode, and the lowering emits 6n precompile STATICCALLs (4n ecMul, 2n ecAdd). The result is flagYes when c_(n+1) equals c_1, each s_i is at most r minus 1 and I is not (0, 0): the range test refuses an s_i at or above r, the compare refuses a chain that does not close, and I = (0, 0) is refused last. `examples/zkcast.lang` is the contract: the entry `cast` takes the calldata words choice, c_1, s_1, s_2, I.x, I.y, reverts on a used nullifier key `hash (hash I.x I.y) poll` or a flagNo verify, else records the key and counts the choice. Its rows are the second deploy block of `test/precompile.sh`. The same block refuses six bad casts before the valid one (S8 B3b, 3fc7f50): a wrong ring member, a flipped choice, a wrong poll id, a key image off the curve, the key image (0, 0) and s_1 + r in place of s_1. The gate runs 33 precompile steps with 0 failures.
+
+## Paths (sealed-lang S3, ported in orbit-lang S2)
+
+Slice S3 of sealed-lang replaces the kit `Eq` with the interval paths of coin-lang: `I`, `i0`, `i1`, `PathP`, `Path`, `refl`, `sym`, `cong`, `funExt`, `transp` and `hcomp` (BUILTINS 61 - 6 + 11 = 66 rows). `transport`, `subst`, `J`, `JRefl` and `trans` are guest defs in `domain/domain.lang`. `formers/tcc-evm-contract.md` section `Paths (sealed-lang S3, ported in orbit-lang S2)` gives each operation and its tests.
+
+Path computations normalize before lowering. A proof used only during checking has no runtime content. A remaining path or Kan operation at a word position gives REFUSE_LOWER (`test/lower/path-word.lang`); the EVM never tests two words for equality to check a path (R24). The existing EVM regressions still pass with the sealed-lang S2 counts: `test/evm.sh` 43 steps, `test/diff.sh` 15 rows and `build/emittool` 24 execution regressions. Path-specific coverage includes the refusal fixture and the 19 quote and parse roundtrips in `build/pathtool`.
+
+## HITs and QITs (sealed-lang S4, ported in orbit-lang S2)
+
+Slice S4 of sealed-lang adds the higher inductive types of coin-lang (8c79e9a, e0d4f3c and 25c14e0, without Glue): a `family` constructor can have interval fields and a boundary system, and `fold` takes one case for each path constructor. `domain/domain.lang` declares S1, Trunc1, Trunc0 and Quot, with the guest defs isProp and isSet. BUILTINS stays 66 rows. `formers/tcc-evm-contract.md` section `HITs and QITs (sealed-lang S4, ported in orbit-lang S2)` gives each form and its tests.
+
+Erasure: a point constructor value lowers as a family value lowers. A path constructor residual or a formal hcomp is not a word: at a word position it gives REFUSE_LOWER (`value_name` in `src/lower.c`, R31; the fixture `test/lower/loop-word.lang` is refused at the stuck `hcomp U256`, R33). A path at run time is that refusal (R37): `langc run` has no new row. The EVM counts did not change at any sealed-lang S4 step: `test/evm.sh` 43 steps, `test/diff.sh` 15 rows, `build/emittool` 24 execution regressions, `test/run.sh` 5 runs and 10 run refusals. HIT-specific coverage is in the check and eval fixtures, the lower refusal and the 26 quote and parse roundtrips in `build/pathtool` (19 -> 26).
+
 ## Commands
 
-- `make check`: the tcc build with `-Wall -Werror`, the clang syntax pass, `test/gate.sh`, `test/run.sh`, `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/mock.sh` and `test/diff.sh`. `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/mock.sh` and `test/diff.sh` need geth `evm` on PATH.
-- `build/langc check FILE` and `build/langc eval FILE`: as in tcc-wasm.
-- `build/langc run PROG SCRIPT`: does the calls in `SCRIPT` on the program `PROG`. Refer to `## Contracts (slice K3)`. `test/run.sh` runs each `test/run/NAME.script` on `examples/contract.lang` and compares the output with `test/run/NAME.out`. It also has 8 refusal rows and a usage row. `build/runtool` checks fresh fuel for initialization and call classification.
-- `build/langc build FILE [-o OUT] [--runtime]` writes the creation code (with `--runtime`, the runtime code: the dispatcher and the entry blocks) as one line of lowercase hex. Refer to `## EVM output (slice K4)`.
+- `make check`: the tcc build with `-Wall -Werror`, the clang syntax pass, `test/gate.sh`, `test/run.sh`, `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/precompile.sh`, `test/mock.sh` and `test/diff.sh`. `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/precompile.sh`, `test/mock.sh` and `test/diff.sh` need geth `evm` on PATH.
+- `build/langc [--kit] check FILE` and `build/langc [--kit] eval FILE NAME [ARGS...]`: as in tcc-wasm.
+- `build/langc --kit run PROG SCRIPT`: does the calls in `SCRIPT` on the program `PROG`. Refer to `## Contracts (slice K3)`. `test/run.sh` runs each `test/run/NAME.script` on `examples/contract.lang` and compares the output with `test/run/NAME.out`. It also has 8 refusal rows and a usage row. `build/runtool` checks fresh fuel for initialization and call classification.
+- `build/langc --kit build FILE [-o OUT] [--runtime]` writes the creation code (with `--runtime`, the runtime code: the dispatcher and the entry blocks) as one line of lowercase hex. Refer to `## EVM output (slice K4)`.
 - `build/asmtool`: the assembler self-test. `build/asmtool runtime|creation|abi` writes the test program or its ABI line. `build/asmtool mock` writes the runtime of the mock ERC-20 token for `test/mock.sh`.
 
 The tool versions and the test path for K4 are in `docs/CAPABILITY.md`.

@@ -26,7 +26,7 @@ prog=examples/contract.lang
 token=00000000000000000000000000000000000000ee
 user=00000000000000000000000000000000000000bb
 neg=$(printf '%62s' '' | tr ' ' f)e2
-topic=$(keccak "$(printf '%s' 'Transfer(address,address,uint256)' | od -An -v -tx1 | tr -d ' \n')")
+topic=$(keccak "$(printf '%s' 'Transfer(address,address,uint256)' | od -An -tx1 | tr -d ' \n')")
 build/asmtool mock >"$tmp/mock" || { echo "FAIL diff: asmtool mock"; exit 1; }
 
 # lg FROM TO AMOUNT: the logs line of one Transfer LOG3 of the mock.
@@ -63,7 +63,7 @@ row() {
       awk '{ printf "%s\"0x%s\":\"0x%s\"", (NR > 1 ? "," : ""), $1, $2 }')}}"
   printf '%s\n' "$5" | tr ';' '\n' >"$tmp/calls"
   if [ "$6" = ok ]; then
-    build/langc run "$prog" "$tmp/calls" >"$tmp/run" 2>"$tmp/err" ||
+    build/langc --kit run "$prog" "$tmp/calls" >"$tmp/run" 2>"$tmp/err" ||
       { echo "FAIL diff $1: langc run: $(head -n 1 "$tmp/err")"; fail=$((fail + 1)); return; }
     want "$(awk '$1 == "state" { sub(/^state /, ""); print }' "$tmp/run")"
   else
@@ -144,7 +144,7 @@ script() {
     return
   fi
   awk 'NF && $1 != "--"' "$_script" >"$tmp/calls"
-  if ! build/langc run "$_prog" "$tmp/calls" >"$tmp/run" 2>"$tmp/err"; then
+  if ! build/langc --kit run "$_prog" "$tmp/calls" >"$tmp/run" 2>"$tmp/err"; then
     echo "FAIL diff $_script: langc run: $(head -n 1 "$tmp/err")"
     fail=$((fail + 1))
     return

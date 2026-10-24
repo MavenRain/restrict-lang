@@ -367,6 +367,39 @@ files). After the copy:
 - If intent-lang commits its S8 (`Env.block`) before S2 runs, S2 can port
   that commit instead. restrict-lang does not need `Env.block` (Q8 (a)).
 
+S2 (DONE, 2026-10-24): intent-lang HEAD was still ef5abe8 (no S8 commit),
+so the source is ef5abe8 (tree da87a361). The base is the S1 commit
+1ce92da (tree 6f6c339d, parent d66168e). The port is `git -C intent-lang
+archive ef5abe8 src domain examples test gen Makefile | tar -x`, then `git
+archive ef5abe8` of SPEC.md, docs/host/README.md, docs/VALIDATION.md,
+formers/FORMERS.md, formers/tcc-evm-contract.md and probe/CAPABILITY.md.
+The survey (`diff -rq` of the seed and an archive of ef5abe8) found no
+other doc file. The seed keeps design/, docs/PLAN.md, README.md and
+LICENSE-*. docs/STATUS.md keeps the seed text and gets an S2 item with the
+list of name edits. After the copy, the code is the ef5abe8 code byte for
+byte (`diff -rq`). Surprises:
+
+- The seed has two files that ef5abe8 does not have:
+  `examples/inventory.lang` and `test/check/domain-name.lang`. The archive
+  does not remove them, so S2 removes them (`git rm`), as intent-lang S2
+  and resolve-lang S2 did. They are seed files, not ported code, so
+  "nothing is removed" above still holds for the port.
+- There are four name edits, the same four sites as in resolve-lang S2:
+  SPEC.md lines 1, 3 and 14, and docs/host/README.md line 3. The other
+  `intent-lang` words in the ported files are provenance: the comment at
+  src/front/front.c:12, the S2 row at docs/host/README.md:40, and the
+  evidence paths `~/Documents/intent-lang-work/...` in docs/VALIDATION.md
+  (lines 315 and 373), test/secptool.c:3 and test/precompile.sh:144.
+- The gate log `~/Documents/restrict-lang-S2-gate.log` is byte for byte the
+  intent-lang S7 log (110 lines). No name edit is in a file that the gate
+  reads.
+- The S7 log comes from a serial `make -B check` with the line `EXIT 0` at
+  the end. A `make -B -j 2 check` run also gives EXIT 0, but two jobs print
+  the build command lines in a different sequence, so `cmp` fails. Its
+  sorted lines are the sorted lines of the S7 log
+  (`~/Documents/restrict-lang-S2-gate-j2.log`). A serial run is in the
+  `-j 2` limit, so the byte-for-byte gate is the serial run.
+
 ## 7. The contract
 
 One contract for each program and each token. The names and the ABI types
@@ -425,8 +458,8 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 |---|---|---|
 | S0 | generate from lang-template (tcc-evm-contract); DESIGN verbatim; this plan; README; kit gate | DONE |
 | S1 | USER rules Q1-Q14; this plan records the rulings | DONE |
-| S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | NEXT |
-| S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | |
+| S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | DONE: `make -B check` EXIT 0 with the intent-lang S7 counters: 49 examples, 0 failed; 19 parse, 186 check and 22 kit-only refusals; 188 evals, 2 proves; contracts 2 written and 5 refused; rings 6 built and 2 refused; 28 guest and 14 host differential rows; 5 runs, 10 run refusals; 8 asmtool; 3 builds, 16 lower refusals, 33 build checks; 20 dispatch; 43 evm steps; 14 precompile rows and 143 steps; 13 mock rows; 15 diff rows; 24 emit regressions; the 13 "regressions: passed" lines; 0 failures. The log is byte for byte the intent-lang S7 log (section 6) |
+| S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | NEXT |
 | S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | |
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | |
 | S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | |
