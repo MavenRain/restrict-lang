@@ -29,6 +29,12 @@
   `ZKProof`, the Sigma verifiers, `ecrecover`); the intent-lang
   docs/STATUS.md at ef5abe8 describes each one. No restrict-lang feature
   is in S2: `Move`, `step` and the hooks are S3.
+- S3 (Part T): `examples/mirror.lang` gives `Move` (a Sum alias), the
+  mirror state, `step`, the hooks `transferred`, `created` and `destroyed`
+  with the L9 guard, the binding (`bindToken`, `unbindToken`,
+  `isTokenBound`, `getTokenBound`) and the L6 laws by `refl` (16 paths).
+  `test/run/mirror.script` shows L9: each hook from an address that is not
+  the bound token reverts. The kernel does not change.
 
 ## Remaining M0 work
 

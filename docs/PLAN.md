@@ -171,6 +171,21 @@ of the balances, and the hooks keep it current.
 from 0 to more than 0, `-1` when `bal f` goes to 0. A move with `f == t`
 and a move with `x == 0` change no count.
 
+S3 (DONE, 2026-10-24) is `examples/mirror.lang` and the run script
+`test/run/mirror.script`. The kernel does not change. Surprises:
+
+- `Move` is a Sum alias with three helpers, not base data (Q-S3-4 (a)): a
+  program cannot declare a family.
+- A move with `f == t` changes no field, and a move with `x == 0` changes
+  no field too: a mint of 0 does not move the lock end (L6 says "change
+  nothing").
+- `-1` needs `bal f > 0` before the move. A mirror that is wrong (O7) can
+  see a move from a balance of 0, and this rule keeps the count correct.
+- A hook needs a bound token, so a call from the zero address reverts
+  before `bindToken`.
+- S3 cannot unbind: `unbindToken t` needs `decided s` to differ from `t`,
+  and no S3 entry changes `decided` (Q-S3-2 (a)). S6 changes it.
+
 ### 3.3 Part R: rules as types
 
 A rule is a decidable proposition over the state before the move, the time
@@ -459,8 +474,8 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S0 | generate from lang-template (tcc-evm-contract); DESIGN verbatim; this plan; README; kit gate | DONE |
 | S1 | USER rules Q1-Q14; this plan records the rulings | DONE |
 | S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | DONE: `make -B check` EXIT 0 with the intent-lang S7 counters: 49 examples, 0 failed; 19 parse, 186 check and 22 kit-only refusals; 188 evals, 2 proves; contracts 2 written and 5 refused; rings 6 built and 2 refused; 28 guest and 14 host differential rows; 5 runs, 10 run refusals; 8 asmtool; 3 builds, 16 lower refusals, 33 build checks; 20 dispatch; 43 evm steps; 14 precompile rows and 143 steps; 13 mock rows; 15 diff rows; 24 emit regressions; the 13 "regressions: passed" lines; 0 failures. The log is byte for byte the intent-lang S7 log (section 6) |
-| S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | NEXT |
-| S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | |
+| S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | DONE (2026-10-24): `examples/mirror.lang` (16 L6 paths by `refl`) and `test/run/mirror.script` (17 rows, L9); the kernel does not change. `make -B check` EXIT 0. Two counters change from the S2 log: examples 49 -> 50 (`mirror.lang` in `examples/kit.txt`) and runs 5 -> 6 (`test/run/mirror.script`); all other lines are the S2 lines; 0 failures. Mutants: 7 (L6 x5, L9 x2), 7 KILLED; the gate after the restore is byte for byte the S3 gate log |
+| S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | NEXT |
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | |
 | S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | |
 | S7 | the contract writer: the ABI of section 7, the events, chain rows on the test token (Q13) | |
@@ -595,3 +610,34 @@ the build of S3 (STEP 3 of the S3 prompt), so S3 went on.
   (86400) in the example; `created` sets `lockEnd t` to the later of
   `lockEnd t` and `now + lockD` (Q7 (a)); S6 makes it a `Params` value.
   (b) No lock end in S3; S4 adds it with LockUp.
+- Q-S3-4 the form of `Move`. A program cannot declare a family
+  (SPEC.md line 36, `REFUSE_DATA`), and no family of domain/domain.lang has
+  an `Addr` or a `U256` field. (a) A Sum alias in the program: `def Move :
+  Type 0 := Sum (Prod Addr (Prod Addr U256)) (Sum (Prod Addr U256) (Prod
+  Addr U256))`, with the helpers `transfer`, `mint` and `burn`, and `step`
+  takes it apart with `either`. intent-lang S8 (c6636f1) writes its records
+  as Prod aliases for the same cause. (b) A family `Move` in
+  domain/domain.lang: this changes the ported kernel. It is not a USER
+  question for S3, because the content of the move does not change.
+
+The S3 survey (2026-10-24) checked the three proposals before the build:
+
+- Q-S3-1: the kernel has no class data before S5, so a constant class code
+  is the only key. A helper with a State argument checks (examples/contract.lang
+  `checkpoint`).
+- Q-S3-2: examples/dao.lang and examples/dao3.lang have no state and no
+  entry. The ported kernel has no DAO decision form on the chain, so the
+  binding reads a `decided` slot until S6.
+- Q-S3-3: `Params` is S6 work. `now` is a Nat (src/front/contract.c:8,
+  `makeEnv (now : Nat) (caller : Addr)`), so `natAdd (now e) lockD` checks.
+- An entry reverts with `none`, and a guard is `flagIf c (some ...) none`
+  (examples/zkcast.lang:19-24). A view with no parameter checks
+  (examples/contract.lang `balance`), so `getTokenBound` is a view now; S7
+  checks its selector (O6).
+- `u256Sub` does not go below 0 (src/lower.c:400 maps it to IR_OP_SUB,
+  src/evm.c:187 emits `sub_sat`), and `u256Add` traps on overflow. So a
+  mirror that is wrong (O7) cannot make a hook revert by a subtraction.
+- The kit has `u256Le` and `u256Eq` but no `u256Lt`
+  (src/front/check.c:191-194).
+
+No question changes the build of S3. The USER can rule each one later.

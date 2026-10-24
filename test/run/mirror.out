@@ -1,0 +1,19 @@
+1 created revert
+2 created revert
+3 bindToken revert
+4 bindToken ok
+  event TokenBound 0x00000000000000000000000000000000000000ee
+5 isTokenBound = flagYes
+6 getTokenBound = 0x00000000000000000000000000000000000000ee
+7 created ok
+8 transferred revert
+9 created revert
+10 destroyed revert
+11 transferred ok
+12 holderCount = 2u
+13 destroyed ok
+14 holderCount = 1u
+15 balanceOf = 3u
+16 lockOf = 86505
+17 unbindToken revert
+state makeState (mapOf [(0x00000000000000000000000000000000000000aa, 3u)]) 1u (mapOf [(0u, 1u)]) (mapOf [(0x00000000000000000000000000000000000000aa, 86505)]) 0x00000000000000000000000000000000000000ee 0x00000000000000000000000000000000000000ee

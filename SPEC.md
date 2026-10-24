@@ -189,7 +189,8 @@ the host form of each former.
 
 | Type | Meaning (design section) | Definition |
 |---|---|---|
-| | | |
+| `Move` | a move of the token (docs/PLAN.md 3.2) | S3: `Sum (Prod Addr (Prod Addr U256)) (Sum (Prod Addr U256) (Prod Addr U256))` in `examples/mirror.lang`, with the helpers `transfer f t x`, `mint t x` and `burn f x`. A program cannot declare a family (`REFUSE_DATA`). |
+| the mirror state | the balances that the hooks keep (3.2) | S3: `bal : Map Addr U256`, `holders : U256`, `holdersIn : Map U256 U256`, `lockEnd : Map Addr Nat`, `bound : Addr`, `decided : Addr`. |
 
 ## 6. Core operations
 
@@ -198,6 +199,10 @@ the host form of each former.
 
 | Operation | Type | Meaning (design section) |
 |---|---|---|
+| `step` | `State -> Env -> Move -> State` | S3: the hook effect (3.2). `holders` changes only at a zero crossing; `f == t` and `x == 0` change nothing (L6, by `refl` in `examples/mirror.lang`). A mint of `x > 0` moves `lockEnd t` to the later of it and `now + lockD` (Q7). |
+| `transferred`, `created`, `destroyed` | entries | S3: each one runs `step`. Each one reverts unless a token is bound and the caller is that token (L9, `test/run/mirror.script`). No hook reverts for a rule (Q9). |
+| `bindToken`, `unbindToken` | entries | S3: apply the DAO decision in the slot `decided` (Q-S3-2 (a)); emit `TokenBound` and `TokenUnbound`. |
+| `isTokenBound`, `getTokenBound` | views | S3: the bound token. `getTokenBound` is a view with no parameter (O6). |
 | | | |
 
 ## 7. Target and instance encoding
