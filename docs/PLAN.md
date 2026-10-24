@@ -27,14 +27,48 @@ USER rulings (the request, 2026-10-24):
   orbit-lang, as intent-lang carries it (3.1).
 - R4 host: TinyCC.
 
-Builder calls (section 10 gives each one):
+USER rulings (S1, 2026-10-24), verbatim:
+
+> Rulings: Take all recommendations
+
+So each question of section 11 takes its recommendation (a):
+
+- Q1 (a): S2 ports the kernel of intent-lang ef5abe8 (section 6). R1 is
+  already enforced there.
+- Q2 (a): the DAO governs each contract that restrict-lang writes. It owns
+  each parameter, the issuer list, the binding and the rule set. The owner
+  and agent roles of the token stay with the issuer (3.1).
+- Q3 (a): the contract also serves `isVerified(address)`, and the token
+  uses it as its identity registry (3.4, section 7).
+- Q4 (a): a bLSAG over the issuer ring of each class, with a key image for
+  each contract (4.3).
+- Q5 (a): a holder discloses the class only, not the country (4.2).
+- Q6 (a): the unit of a holder is a wallet. One credential registers one
+  wallet in each contract (4.3, L7).
+- Q7 (a): one lock end for each wallet. `created` sets it to `now + d`, a
+  later mint moves it to the later time, and a transfer in does not lock
+  (3.3).
+- Q8 (a): the clock is `now`, which lowers to TIMESTAMP (seconds). Holding
+  periods are calendar time (3.3).
+- Q9 (a): the hooks never revert for a rule. A forced move updates the
+  mirror, and the hook emits `Broken` (section 7).
+- Q10 (a): the DAO votes yes or no on one proposal (May, 4.4).
+- Q11 (a): a country rule reads the receiver only (3.3).
+- Q12 (a): a total cap and a cap for each class (3.3).
+- Q13 (a): the chain rows use a test token in the kit test style. It calls
+  `isVerified`, `canTransfer` and the hooks in the order of the EIP example
+  (section 8).
+- Q14 (a): the DAO members are the members that the charter lists, ported
+  (3.1).
+
+Builder calls (section 10 gives each one; Q1 rules O3):
 
 - O1: the name restrict-lang, from the title of the paste ("A
   transfer-restriction language").
 - O2: the target is EVM bytecode, with the kit hosts/tcc-evm-contract.
   ERC-3643 is an EVM standard, so the paste fixes the chain family.
 - O3: the kernel comes from intent-lang ef5abe8, as for resolve-lang. R1 is
-  already enforced there (section 6). Q1 rules it.
+  already enforced there (section 6). RULED: Q1 (a).
 - The "Activity" bullets are motivation. The plan does not check them, and
   no type or operation comes from them. The GENIUS Act bullet is about
   stablecoins, not securities. No rule comes from it.
@@ -390,8 +424,8 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | Slice | Content | Status |
 |---|---|---|
 | S0 | generate from lang-template (tcc-evm-contract); DESIGN verbatim; this plan; README; kit gate | DONE |
-| S1 | USER rules Q1-Q14; this plan records the rulings | NEXT |
-| S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | |
+| S1 | USER rules Q1-Q14; this plan records the rulings | DONE |
+| S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | NEXT |
 | S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | |
 | S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | |
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | |
@@ -401,98 +435,105 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 
 ## 10. Open items
 
-Each item is kept as the builder call until the USER rules it.
+Each item is RULED (S1, 2026-10-24) or kept as the builder call.
 
-- O1 name: restrict-lang, from the title of the paste. Builder call.
+- O1 name: restrict-lang, from the title of the paste. Builder call. Kept.
 - O2 target: EVM by hosts/tcc-evm-contract. ERC-3643 is an EVM standard.
-  Builder call.
-- O3 kernel: port intent-lang ef5abe8. Q1.
+  Builder call. Kept.
+- O3 kernel: port intent-lang ef5abe8. RULED: Q1 (a).
 - O4 the `rules` form: a top-level form that elaborates to definitions, as
   the cofamily form does in intent-lang and the `market` form does in
   resolve-lang (text elaboration). The alternative is a Sigma over the
   universe; it loses the rule names, and the contract needs them for the
-  `Params` of each rule.
+  `Params` of each rule. Kept.
 - O5 decidability: a rule must have a `dec` term. The atoms are U256 and Nat
   comparisons, Map reads and `member` over a fixed set. A rule that
   quantifies over all addresses has no `dec` term. Default refusal:
-  `TYPE_MISMATCH`, no dedicated code.
+  `TYPE_MISMATCH`, no dedicated code. Kept: `TYPE_MISMATCH`.
 - O6 the ABI names: the kit must accept the exact names `canTransfer`,
   `isTokenBound` and so on, and a view with no parameter
   (`getTokenBound()`). S7 checks the selectors against the EIP signatures.
-  If the kit refuses either one, S7 changes the kit.
+  If the kit refuses either one, S7 changes the kit. Kept: S7 work.
 - O7 the mirror is correct only if the token calls a hook for each balance
   change: forced transfers and recovery too. The EIP does not say whether a
   forced transfer calls `transferred`. The chain rows test the test token
   only (Q13). The freeze of tokens is a token rule, not a compliance rule.
+  Kept: Q13 (a) tests the test token only.
 - O8 the per-contract key image needs a hash to curve on chain (MODEXP
   0x05). resolve-lang O10 needs the same work. The first of the two to build
-  it gives the form; the other ports it.
+  it gives the form; the other ports it. Kept: Q4 (a) needs the key image.
+  The hash to curve is S5 work.
 - O9 encrypted ballots: intent-lang S9, resolve-lang S6 and restrict-lang S6
-  need the same form. One builds it; the others port it.
+  need the same form. One builds it; the others port it. Kept.
 - O10 rings expire. A registration ends with its ring, and a holder
   registers again with a new ring. Revocation is a new ring without the key.
   A change of the rule set that changes the classes ends every registration
   of the old classes. A wallet that holds tokens and loses its registration
   keeps its tokens. It cannot receive more, because `isVerified` says no.
+  Kept.
 - O11 two credentials from two issuers give two wallets. A per-investor cap
   is a per-credential cap. The charter binds each issuer to issue one
-  credential for each investor and class.
+  credential for each investor and class. Kept.
 - O12 `investorCountry(address)` is not served: the country is hidden (Q5
-  (a)). A token or a tool that calls it fails.
+  (a)). A token or a tool that calls it fails. Kept: Q5 (a).
 - O13 the UAT regime of each vote kind (4.4). Kept: open until S6.
 - O14 ecrecover comes with the port and has no use. Kept: S2 keeps it.
 - O15 the guest poll id is fixed to 0 (H:310). Each DAO proposal needs a
-  poll id: a change of the signature. S6 work.
+  poll id: a change of the signature. Kept: S6 work.
 - O16 the transfer agent bullet: the token stays the record of ownership.
-  The compliance contract keeps a mirror only (3.2).
+  The compliance contract keeps a mirror only (3.2). Kept.
 
 ## 11. Questions for the USER (S1)
 
-Each question has a recommendation (a).
+Each question has a recommendation (a). All fourteen are RULED (S1,
+2026-10-24; the quote is in section 1).
 
 - Q1 kernel route. (a) Port intent-lang ef5abe8: R1 is already enforced.
-  (b) Port orbit-lang 2162fb2 and narrow it to R1 again.
+  (b) Port orbit-lang 2162fb2 and narrow it to R1 again. RULED: (a).
 - Q2 "govern all contracts". (a) Every contract that restrict-lang writes:
   the DAO is part of the contract and owns each parameter, the issuer list,
   the binding and the rule set. The owner and agent roles of the token stay
   with the issuer. (b) Also the token: a new kit `Out` form `call` lets the
   DAO act as the token owner and agent (pause, freeze, forced transfer).
+  RULED: (a).
 - Q3 identity registry. (a) The contract also serves `isVerified(address)`,
   and the token uses it as its identity registry. (b) Compliance only. A
   standard identity registry with public ONCHAINID claims stays, and the ZK
-  credentials gate `canTransfer` only.
+  credentials gate `canTransfer` only. RULED: (a).
 - Q4 the credential proof. (a) bLSAG over the issuer ring of each class,
   with a key image for each contract (4.3): the port has it, the gas grows
   with the ring size. (b) Merkle membership with a Groth16 verifier on the
   pairing precompile 0x08: a new proof form and an off-chain circuit, but
-  the gas does not grow with the set.
+  the gas does not grow with the set. RULED: (a).
 - Q5 disclosure. (a) The class only: the partition that the rules read
   (4.2). (b) The country code, so that `investorCountry` can be served.
+  RULED: (a).
 - Q6 the unit of a holder. (a) A wallet; one credential registers one
   wallet in each contract. (b) A credential with many wallets: each wallet
   registers under the same key image, and the count is per credential. The
-  chain then sees which wallets belong together.
+  chain then sees which wallets belong together. RULED: (a).
 - Q7 lock-ups. (a) One lock end for each wallet, set by `created` to `now +
   d`; a later mint moves it to the later time; a transfer in does not lock.
   (b) A lock end for each lot: a transfer can move only the unlocked units.
-  This needs a lot ledger in the state.
+  This needs a lot ledger in the state. RULED: (a).
 - Q8 the clock. (a) `now`, which lowers to TIMESTAMP (seconds): holding
   periods are calendar time. (b) Blocks: `Env.block`, NUMBER, as intent-lang
-  O17.
+  O17. RULED: (a).
 - Q9 a move that the rules refuse. (a) The hooks never revert for a rule.
   The token agent can force a move (the EIP lets a forced transfer bypass
   the rules); the hook updates the mirror and emits `Broken`. (b) The hooks
-  revert, so a forced move that breaks a rule fails.
+  revert, so a forced move that breaks a rule fails. RULED: (a).
 - Q10 the DAO vote. (a) Yes or no on one proposal (May, 4.4). (b) Also a
   one-hot ballot over a ladder of values with the median for numeric
-  parameters (Black, 4.4).
+  parameters (Black, 4.4). RULED: (a).
 - Q11 country rules read. (a) The receiver only. (b) The sender and the
-  receiver.
+  receiver. RULED: (a).
 - Q12 holder caps. (a) A total cap and a cap for each class. (b) A total cap
-  only.
+  only. RULED: (a).
 - Q13 the token of the chain rows. (a) A test token in the kit test style
   that calls `isVerified`, `canTransfer` and the hooks in the order of the
   EIP example. (b) The bytecode of the reference T-REX token, pinned.
+  RULED: (a).
 - Q14 the DAO members. (a) The members that the charter lists (ported): for
   example the issuer, the transfer agent and the holder delegates. (b) The
-  registered holders: one credential, one vote.
+  registered holders: one credential, one vote. RULED: (a).
