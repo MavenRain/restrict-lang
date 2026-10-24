@@ -570,3 +570,28 @@ Each question has a recommendation (a). All fourteen are RULED (S1,
 - Q14 the DAO members. (a) The members that the charter lists (ported): for
   example the issuer, the transfer agent and the holder delegates. (b) The
   registered holders: one credential, one vote. RULED: (a).
+
+## 12. Questions of S3
+
+Each one is a builder call (a); the USER can rule otherwise. None changes
+the build of S3 (STEP 3 of the S3 prompt), so S3 went on.
+
+- Q-S3-1 the class key of `holdersIn` before Part C. (a) A helper
+  `clsCode : State -> Addr -> U256` gives class 0 for each address; `step`
+  keys `holdersIn` by it. S5 changes only its body to `mapGet (clsOf s) a`.
+  (b) S3 leaves `holdersIn` out; S5 adds it.
+- Q-S3-2 the binding guard before the S6 DAO forms. (a) The binding applies
+  a DAO decision: a state slot `decided : Addr` holds the token that the
+  DAO decided to bind (S3: `init` sets it to the test token
+  0x00000000000000000000000000000000000000ee; S6 makes it the enacted
+  `Params` value). `bindToken t` binds when no token is bound, t is not the
+  zero address and t == decided s; any caller can apply the decision, so
+  there is no key. `unbindToken t` unbinds when t is the bound token and
+  decided s is not t. They emit `TokenBound` and `TokenUnbound`. (b) A
+  placeholder owner key `dao : Addr` until S6: this adds a key, which
+  section 3.1 forbids. (c) Move the two entries to S6 and fix the token in
+  `init`.
+- Q-S3-3 the lock length before `Params`. (a) A constant `def lockD : Nat`
+  (86400) in the example; `created` sets `lockEnd t` to the later of
+  `lockEnd t` and `now + lockD` (Q7 (a)); S6 makes it a `Params` value.
+  (b) No lock end in S3; S4 adds it with LockUp.
