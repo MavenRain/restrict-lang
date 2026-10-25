@@ -66,10 +66,8 @@ void blsag_key(U256 *out, uint64_t i) {
   blsag_reduce(out, &w);
 }
 
-int blsag_hash_point(G1 *out, uint32_t *counter, const G1 *p) {
-  U256 px;
-  U256 py;
-  U256 h;
+/* H_p from the seed H: x_k = hash(H, k) from k = 0. */
+static int seed_point(G1 *out, uint32_t *counter, const U256 *h) {
   U256 k;
   U256 xk;
   U256 e;
@@ -83,8 +81,6 @@ int blsag_hash_point(G1 *out, uint32_t *counter, const G1 *p) {
   Fe s2;
   Fe neg;
   uint32_t i;
-  g1_to_words(&px, &py, p);
-  hash2(&h, &px, &py);
   /* The square root exponent (p + 1) / 4: p is 3 mod 4. */
   modulus_word(&e, &BN254_FP);
   u256_add(&e, &e, &ONE);
@@ -93,7 +89,7 @@ int blsag_hash_point(G1 *out, uint32_t *counter, const G1 *p) {
   fe_from_u64(&three, 3u);
   for (i = 0; i < BLSAG_HP_TRIES; i++) {
     u256_from_u64(&k, i);
-    hash2(&xk, &h, &k);
+    hash2(&xk, h, &k);
     if (!fe_from_u256(&x, &xk, &BN254_FP))
       continue;
     fe_mul(&x2, &x, &x, &BN254_FP);
@@ -112,6 +108,30 @@ int blsag_hash_point(G1 *out, uint32_t *counter, const G1 *p) {
     return 1;
   }
   return 0;
+}
+
+int blsag_hash_point(G1 *out, uint32_t *counter, const G1 *p) {
+  U256 px;
+  U256 py;
+  U256 h;
+  g1_to_words(&px, &py, p);
+  hash2(&h, &px, &py);
+  return seed_point(out, counter, &h);
+}
+
+int blsag_hash_point_at(G1 *out, uint32_t *counter, const G1 *p, const U256 *w) {
+  U256 px;
+  U256 py;
+  U256 h;
+  g1_to_words(&px, &py, p);
+  hash2(&h, &px, &py);
+  hash2(&h, &h, w);
+  return seed_point(out, counter, &h);
+}
+
+/* H_p(P), or H_p(P) at the context W when W is not NULL. */
+static int ring_point(G1 *out, uint32_t *counter, const G1 *p, const U256 *w) {
+  return w == NULL ? blsag_hash_point(out, counter, p) : blsag_hash_point_at(out, counter, p, w);
 }
 
 void blsag_digest(U256 *out, const G1 *ring, uint32_t n) {
@@ -143,9 +163,10 @@ static void challenge(U256 *out, const U256 *d, const U256 *poll, const U256 *ch
     hash2(out, out, &w[i]);
 }
 
-/* Bind deterministic scalars to the entire signing context. Role 0 is the
-   private alpha, role 1 a public decoy response. Both the ring digest and
-   the role prevent nonce reuse when a signer changes rings or positions. */
+/* Bind deterministic scalars to the entire signing context. Legacy roles
+   0 and 1 are the private alpha and public decoy response; context roles
+   2 and 3 keep those scalars separate from the legacy signing mode.
+   The ring digest and role also bind the ring and signer position. */
 static void nonce(U256 *out, const U256 *x, const U256 *d, const U256 *poll, const U256 *choice, uint32_t i, uint32_t role) {
   U256 t;
   U256 k;
@@ -175,7 +196,8 @@ static void link(U256 *next, const U256 *d, const U256 *poll, const U256 *choice
   challenge(next, d, poll, choice, img, &l, &r);
 }
 
-int blsag_sign(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 *poll, const U256 *choice) {
+/* blsag_sign with the H_p of ring_point at the context W. */
+static int sign(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 *w, const U256 *poll, const U256 *choice) {
   G1 h[BLSAG_RING_MAX];
   G1 pj;
   G1 img;
@@ -203,18 +225,18 @@ int blsag_sign(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 
   if (j == n)
     return 0;
   for (i = 0; i < n; i++) {
-    if (!blsag_hash_point(&h[i], &counter, &ring[i]))
+    if (!ring_point(&h[i], &counter, &ring[i], w))
       return 0;
   }
   blsag_digest(&d, ring, n);
   g1_mul(&img, &h[j], x);
-  nonce(&alpha, x, &d, poll, choice, j, 0u);
+  nonce(&alpha, x, &d, poll, choice, j, w == NULL ? 0u : 2u);
   g1_mul(&l, &GEN, &alpha);
   g1_mul(&r, &h[j], &alpha);
   challenge(&c[(j + 1u) % n], &d, poll, choice, &img, &l, &r);
   for (k = 1; k < n; k++) {
     i = (j + k) % n;
-    nonce(&sig[1u + i], x, &d, poll, choice, i, 1u);
+    nonce(&sig[1u + i], x, &d, poll, choice, i, w == NULL ? 1u : 3u);
     link(&c[(i + 1u) % n], &d, poll, choice, &img, &ring[i], &h[i], &sig[1u + i], &c[i]);
   }
   /* s_j = alpha minus c_j x mod r, with c_j reduced first. */
@@ -229,7 +251,16 @@ int blsag_sign(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 
   return 1;
 }
 
-BlsagVerdict blsag_verify(const G1 *ring, uint32_t n, const U256 *poll, const U256 *choice, const U256 *sig) {
+int blsag_sign(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 *poll, const U256 *choice) {
+  return sign(sig, ring, n, x, NULL, poll, choice);
+}
+
+int blsag_sign_at(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 *w, const U256 *m) {
+  return sign(sig, ring, n, x, w, w, m);
+}
+
+/* blsag_verify with the H_p of ring_point at the context W. */
+static BlsagVerdict verify(const G1 *ring, uint32_t n, const U256 *w, const U256 *poll, const U256 *choice, const U256 *sig) {
   G1 img;
   G1 h;
   U256 r;
@@ -251,9 +282,17 @@ BlsagVerdict blsag_verify(const G1 *ring, uint32_t n, const U256 *poll, const U2
   blsag_digest(&d, ring, n);
   c = sig[0];
   for (i = 0; i < n; i++) {
-    if (!blsag_hash_point(&h, &counter, &ring[i]))
+    if (!ring_point(&h, &counter, &ring[i], w))
       return BLSAG_TRAP;
     link(&c, &d, poll, choice, &img, &ring[i], &h, &sig[1u + i], &c);
   }
   return u256_cmp(&c, &sig[0]) == 0 ? BLSAG_ACCEPT : BLSAG_REJECT;
+}
+
+BlsagVerdict blsag_verify(const G1 *ring, uint32_t n, const U256 *poll, const U256 *choice, const U256 *sig) {
+  return verify(ring, n, NULL, poll, choice, sig);
+}
+
+BlsagVerdict blsag_verify_at(const G1 *ring, uint32_t n, const U256 *w, const U256 *m, const U256 *sig) {
+  return verify(ring, n, w, w, m, sig);
 }

@@ -52,4 +52,15 @@ int blsag_sign(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 
    range test on c_1. */
 BlsagVerdict blsag_verify(const G1 *ring, uint32_t n, const U256 *poll, const U256 *choice, const U256 *sig);
 
+/* The context ops (restrict-lang S5, Q-S5-1 (a), O8). W is the context word
+   (the contract word) and M the message word (the wallet word). */
+/* H_p at W: blsag_hash_point with the seed hash(hash(P.x, P.y), W). */
+int blsag_hash_point_at(G1 *out, uint32_t *counter, const G1 *p, const U256 *w);
+/* blsag_sign with H_p at W for each ring member, W in the place of the poll
+   and M in the place of the choice. The key image is I = x H_p at W (P), so
+   one key gives another key image in each context. */
+int blsag_sign_at(U256 *sig, const G1 *ring, uint32_t n, const U256 *x, const U256 *w, const U256 *m);
+/* blsag_verify for a signature of blsag_sign_at. */
+BlsagVerdict blsag_verify_at(const G1 *ring, uint32_t n, const U256 *w, const U256 *m, const U256 *sig);
+
 #endif

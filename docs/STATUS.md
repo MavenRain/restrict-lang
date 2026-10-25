@@ -47,6 +47,17 @@
   paths (L1, rules-cap L3 and L6, rules-lock L4). `test/run/restrict.script`
   shows the lock-up and the holder cap, `Broken` on a forced move, and the
   mint bypass.
+- S5 (Part C): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt`
+  (`src/front/blsag.c`, `core.h`, `check.c`, `eval.c`). The context word
+  goes into the hash to curve, so one credential key gives one key image
+  for each contract (O8). The old ops give the same bytes.
+  `test/blsagtool.c` has the context rows. `examples/restrict.lang` adds
+  the registry state (`used`, `clsOf`, `expires`, the ring slot maps), the
+  class map `cls`, the entries `issue` and `register`, the view
+  `isVerified` and `clsCode := clsOf`, and 26 more `refl` paths (L2, L7,
+  L8, the class rule of `register`). `test/run/restrict.script` shows
+  `issue`, `register`, a second `register` with a used key image (revert)
+  and the end of a registration.
 
 ## Remaining M0 work
 

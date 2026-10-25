@@ -50,6 +50,9 @@ int main(void) {
   U256 other[5];
   U256 moved[5];
   U256 again[5];
+  U256 at_one[5];
+  U256 at_one_other[5];
+  U256 at_two[5];
   uint32_t i;
   int ok = 1;
   if (!g1_from_words(&generator, &one, &two) || !g1_from_words(&infinity, &zero, &zero))
@@ -92,6 +95,49 @@ int main(void) {
   }
   if (blsag_sign(again, &infinity, 1u, &zero, &zero, &one)) {
     fputs("FAIL bLSAG zero key produces an unverifiable signature\n", stderr);
+    ok = 0;
+  }
+  /* The context ops (Q-S5-1 (a), O8): one key in the contexts 1 and 2 gives
+     two key images, one context gives one key image for each message, and
+     each signature verifies in its own context only. I is sig[3], sig[4]. */
+  if (!blsag_sign_at(at_one, ring, 2u, &key, &one, &two)
+      || !blsag_sign_at(at_one_other, ring, 2u, &key, &one, &one)
+      || !blsag_sign_at(at_two, ring, 2u, &key, &two, &two)) {
+    fputs("FAIL bLSAG context signing setup\n", stderr);
+    return 1;
+  }
+  if (u256_cmp(&at_one[3], &at_two[3]) == 0 && u256_cmp(&at_one[4], &at_two[4]) == 0) {
+    fputs("FAIL bLSAG one key image in two contexts\n", stderr);
+    ok = 0;
+  }
+  /* Matching inputs in the two modes must use different private nonces. */
+  if (!blsag_sign(again, ring, 2u, &key, &one, &two)
+      || blsag_verify(ring, 2u, &one, &two, again) != BLSAG_ACCEPT)
+    return 1;
+  if (recovers(&generator, &ring[0], &again[1], &at_one[1], &at_one[0], &again[0])) {
+    fputs("FAIL bLSAG signing modes disclose private key\n", stderr);
+    ok = 0;
+  }
+  if (u256_cmp(&at_one[3], &original[3]) == 0 && u256_cmp(&at_one[4], &original[4]) == 0) {
+    fputs("FAIL bLSAG context key image is the plain key image\n", stderr);
+    ok = 0;
+  }
+  if (u256_cmp(&at_one[3], &at_one_other[3]) != 0 || u256_cmp(&at_one[4], &at_one_other[4]) != 0) {
+    fputs("FAIL bLSAG two key images in one context\n", stderr);
+    ok = 0;
+  }
+  if (blsag_verify_at(ring, 2u, &one, &two, at_one) != BLSAG_ACCEPT
+      || blsag_verify_at(ring, 2u, &one, &one, at_one_other) != BLSAG_ACCEPT
+      || blsag_verify_at(ring, 2u, &two, &two, at_two) != BLSAG_ACCEPT) {
+    fputs("FAIL bLSAG valid context signatures\n", stderr);
+    ok = 0;
+  }
+  if (blsag_verify_at(ring, 2u, &two, &two, at_one) != BLSAG_REJECT
+      || blsag_verify_at(ring, 2u, &one, &two, at_two) != BLSAG_REJECT
+      || blsag_verify_at(ring, 2u, &one, &one, at_one) != BLSAG_REJECT
+      || blsag_verify(ring, 2u, &one, &two, at_one) != BLSAG_REJECT
+      || blsag_verify_at(ring, 2u, &zero, &one, original) != BLSAG_REJECT) {
+    fputs("FAIL bLSAG signature verifies in another context\n", stderr);
     ok = 0;
   }
   puts(ok ? "bLSAG regressions: passed" : "bLSAG regressions: FAILED");

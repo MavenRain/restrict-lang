@@ -286,6 +286,25 @@ The message is `w` and this contract. The key image is `I = x * Hp(K,
 this)`. In the type the proof is `ZKProof (Sigma (k : CredKey) (InRing c k
 * Owns k))`. The contract learns the class `c` and nothing more.
 
+S5 notes (Q-S5-1..7 (a), section 14):
+
+- The kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt` give `I = x * zkHpAt K
+  w`, with the contract word `w = addrToU256 self` (a constant until S7).
+  The wallet word `m` is the caller.
+- `cls` is written by hand: S1 = {840} gives class 1, and the other
+  countries give class 0. The S5 country rule lets class 0 pass (an offer to
+  holders outside S1 only), so the S4 rows stay: an address that did not
+  register has class 0. A `CountryIn {840}` rule gives the same two classes
+  and lets class 1 pass. The computation of `cls` from the rules form is a
+  new open item (O17).
+- Each ring has two slots (`ringX`, `ringY`, key `c + c + i`). `issue`
+  reverts for a slot `i > 1`, because that key is a slot of class `c + 1`.
+  An empty slot is the point at infinity `(0, 0)`, which the verifier
+  accepts.
+- `regOk` (the checks of `register`) takes the signature as a list, so the
+  `refl` rows build it with `zkSignAt`. A `langc --kit eval` of `sigD` and
+  `sigE` shows that their last two words are the key image `img0`.
+
 ## 4. Readings of the design on Cubical TT
 
 ### 4.1 "State those rules as types"
@@ -508,8 +527,8 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | DONE: `make -B check` EXIT 0 with the intent-lang S7 counters: 49 examples, 0 failed; 19 parse, 186 check and 22 kit-only refusals; 188 evals, 2 proves; contracts 2 written and 5 refused; rings 6 built and 2 refused; 28 guest and 14 host differential rows; 5 runs, 10 run refusals; 8 asmtool; 3 builds, 16 lower refusals, 33 build checks; 20 dispatch; 43 evm steps; 14 precompile rows and 143 steps; 13 mock rows; 15 diff rows; 24 emit regressions; the 13 "regressions: passed" lines; 0 failures. The log is byte for byte the intent-lang S7 log (section 6) |
 | S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | DONE (2026-10-24): `examples/mirror.lang` (16 L6 paths by `refl`) and `test/run/mirror.script` (17 rows, L9); the kernel does not change. `make -B check` EXIT 0. Two counters change from the S2 log: examples 49 -> 50 (`mirror.lang` in `examples/kit.txt`) and runs 5 -> 6 (`test/run/mirror.script`); all other lines are the S2 lines; 0 failures. Mutants: 7 (L6 x5, L9 x2), 7 KILLED; the gate after the restore is byte for byte the S3 gate log |
 | S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | DONE (2026-10-24): the kit form `rules` in five src/front files (section 3.3, S4 notes); `examples/restrict.lang` (`mirror.lang` with Part R: four rule tests, one form, `Broken`; 23 more `refl` paths: L1 x5, rules-cap x13, rules-lock x5), `test/check/rules-no-dec.lang` (`TYPE_MISMATCH`, O5) and `test/run/restrict.script` (14 rows). `make -B check` EXIT 0. Three counters change from the S3 log: examples 50 -> 51 (`restrict.lang` in `examples/kit.txt`), check refusals 186 -> 187 (`rules-no-dec.lang`) and runs 6 -> 7 (`test/run/restrict.script`); all other lines are the S3 lines; 0 failures. Mutants: 7 (L1, L3 x2, L4, O5, `Broken`, `RULES_HELPERS 9u`), 6 KILLED, 1 SURVIVED (an equivalent mutant, section 3.3 S4 notes); the gate after the restore is byte for byte the S4 gate log |
-| S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | NEXT |
-| S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | |
+| S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | DONE (2026-10-25): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt` (Q-S5-1 (a); the key image seed is hash(hash(P.x, P.y), w), and the old ops keep the same bytes) with the blsagtool context rows; `examples/restrict.lang` with Part C (section 3.4, S5 notes; 26 more `refl` paths: L2, L7, L8, the issue, register and class rows) and `test/run/restrict.script` (9 more rows). `make -B check` EXIT 0. No counter changes: the log is byte for byte the S5 step0 log, because S5 adds no example file and no run script, and the blsagtool context rows print no new line; 0 failures. Mutants: 6 (L2, L7, L8, the key image context, expiry, the class rule), 6 KILLED; the gate stops at the first failed step, so the second legs ran alone: M2 and M5 change run rows 20 and 21 (on the example without its `refl` rows, whose run output is `restrict.out`), and M4 fails three blsagtool context rows. The gate after the restore is byte for byte the S5 gate log |
+| S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | NEXT |
 | S7 | the contract writer: the ABI of section 7, the events, chain rows on the test token (Q13) | |
 | S8 | mutants, SPEC, VALIDATION, close | |
 
@@ -562,6 +581,10 @@ Each item is RULED (S1, 2026-10-24) or kept as the builder call.
   poll id: a change of the signature. Kept: S6 work.
 - O16 the transfer agent bullet: the token stays the record of ownership.
   The compliance contract keeps a mirror only (3.2). Kept.
+- O17 the class map `cls` is written by hand in `examples/restrict.lang`
+  (S5, Q-S5-3 (a)): S1 = {840} gives class 1, and the other countries give
+  class 0. The rules form can compute `cls` from the sets of its rules: a
+  change to `check_rules` (Q-S5-3 (b)). Kept: open.
 
 ## 11. Questions for the USER (S1)
 
@@ -775,3 +798,93 @@ The counters that S4 can change: examples 50 -> 51 (`restrict.lang`),
 check refusals 186 -> 187 or more (`rules-no-dec.lang` and the refusal rows
 of the form), runs 6 -> 7 (`restrict.script`), and the fronttool lines if a
 host C test of the parser is necessary.
+
+## 14. Questions of S5
+
+STEP 0 (2026-10-24): the USER commit b7841d2 (parent 841b2c2) has the tree
+191b7404, not the staged tree f5a5d22d. The USER added review fixes in six
+files: dot-separated source names (src/front/lexer.c), the per-rule names
+`R.rule.ri.holds` and `R.rule.ri.dec` (src/front/check.c, SPEC.md, section
+13) and `rules_regressions` in test/fronttool.c. S5 takes b7841d2 as the S4
+base. The S5 STEP 0 gate (`~/Documents/restrict-lang-S5-step0-gate.log`,
+serial `make -B check`) gives EXIT 0 and is byte for byte the S4 gate log
+(110 lines): `rules_regressions` adds no line to the log.
+
+The S5 survey checked these facts with `build/langc --kit check` on the
+probes in `~/Documents/restrict-lang-work/S5-probes/`:
+
+- p1 prints ok. A state with `used : Map U256 Flag`, `clsOf : Map Addr
+  U256`, `expires : Map Addr Nat` and two ring slot maps checks. `zkSign` and
+  `zkVerify` check in a kit program def, and `refl` decides a closed
+  `zkVerify`: yes for the signed poll, no for another poll. A class map `cls
+  : U256 -> U256` by `flagIf` gives `Path U256 (cls 250u) (cls 276u)` by
+  `refl` (the form of L2).
+- p2: the value of a `Map` must be `Nat`, `Flag`, `U256` or `Addr`
+  (`REFUSE_MAP`). Thus `Ring c` cannot be a `Map U256 (List ...)`.
+- p3: `Env` has no contract address (`this` gives `NAME_UNKNOWN`). `Env` is
+  `makeEnv now caller`.
+- The kit bLSAG (examples/zk.lang, src/front/blsag.c, the op table at
+  src/front/check.c:210): `zkSign ring x poll choice` and `zkVerify ring
+  poll choice sig`. The signature is the word list `c_1, s_1 .. s_n, I.x,
+  I.y`. The key image is `I = x * zkHp P`. It does not depend on the poll or
+  on the contract: the poll id and the choice go into the challenge only.
+  `zkHp` takes a point only (try and increment, the tag "orbit").
+
+The questions. Q-S5-1 changes the kernel, so S5 stops at STEP 2 for the
+USER rulings. The other questions are builder calls (a).
+
+- Q-S5-1 the per-contract key image (O8). KERNEL. (a) A context word in the
+  hash to curve. New kit ops in src/front/blsag.c and the op table:
+  `zkHpAt P w` (the H_p of `hash (hash P.x P.y) w`), `zkSignAt ring x w m`
+  and `zkVerifyAt ring w m sig`, with `I = x * zkHpAt P w`. `w` is the
+  contract word and `m` is the wallet word. The old ops do not change, so
+  the zk.lang lines of the gate stay. A row in test/blsagtool.c: one key in
+  two contexts gives two key images, and each signature verifies in its own
+  context only (section 8, ring rows). The chain verifier (MODEXP 0x05) is
+  S7 work with the contract writer. (b) Keep `zkSign` and `zkVerify`, and
+  use the contract word as the poll id. Then a key image links the wallets
+  of one credential across contracts: O8 is not met. (c) Leave O8 to
+  resolve-lang O10 and use (b) until then.
+- Q-S5-2 the contract word. (a) A constant def `self : Addr` (as
+  `testToken`) until the writer of S7, and `w := addrToU256 self`. (b) Add
+  the contract address to `Env` (a kernel change to `Env` and the runner).
+- Q-S5-3 the class partition (4.2). (a) Written by hand in
+  `examples/restrict.lang`: `cls : U256 -> U256` by `flagIf` over the sets of
+  the rules. For the 4.2 example, class 1 is `{840}` and class 0 is the
+  other countries. `inSet` reads the classes, not the countries. L2 rows by
+  `refl`: two countries of one class get the same `cls` and the same rule
+  answers. The computation of `cls` from the rules form is later work (a
+  new O17). (b) The rules form computes `cls` (a kernel change to
+  `check_rules`).
+- Q-S5-4 the rings (p2). (a) A fixed ring size n = 2 for each class. The
+  slot maps `ringX, ringY : Map U256 U256` have the key `c * 2 + i`. `issue c
+  i kx ky` writes slot `i` of class `c` and emits `Issued c i`. The issuer is
+  a constant `issuer : Addr` until the issuer list of S6. `register` reads
+  the two slots into the list for `zkVerifyAt`. (b) n = 3.
+- Q-S5-5 `register`. (a) `register c c1 s1 s2 ix iy`: the five words of a
+  signature for n = 2 (the entry builds the list). The key of `used` is
+  `hash ix iy`. `register` reverts unless `zkVerifyAt (ring c) w (caller)
+  sig` is yes and the key image is not used. It sets `used`, `clsOf caller
+  = c` and `expires caller = now + regD` (a constant `regD` until S6), and
+  emits `Registered c ix iy` (the class and the key image only, section 7).
+  L7 holds by the `used` check.
+- Q-S5-6 expiry, `isVerified` and `clsCode`. (a) `isVerified w := notF
+  (natLe (expires w) now)`: an address that did not register has the end 0.
+  `clsCode s a := mapGet (clsOf s) a`, so an address that did not register
+  has class 0 and the S4 rows stay. L8 rows by `refl` at `now == expires -
+  1` (yes) and `now == expires` (no). `register` reverts when the caller
+  holds tokens and the class changes, so `holdersIn` stays exact; a renewal
+  in the same class with a new key image is valid (O10). (b) `register`
+  moves the holder count to the new class.
+- Q-S5-7 the files. (a) The rows go into `examples/restrict.lang` (Q-S4-7
+  (a)): the rules-class rows (L2), the L7 and L8 rows by `refl`, and run rows
+  in `test/run/restrict.script` for `issue`, `register`, a second `register`
+  with the same key image (revert) and expiry. `mirror.lang` does not
+  change. (b) `test/check/rules-class.lang` with a copy of Part T.
+
+The counters that S5 can change: blsagtool rows (Q-S5-1 (a)), the runs rows
+of `restrict.script`, and no new example file (Q-S5-7 (a)).
+
+USER rulings (S5, 2026-10-24): Q-S5-1 "(a) New *At ops"; Q-S5-2..7 "All
+(a)". Thus each question of S5 is (a). Q-S5-1 (a) changes the kernel: the
+new ops `zkHpAt`, `zkSignAt` and `zkVerifyAt`. The old ops do not change.

@@ -91,6 +91,9 @@ typedef enum {
   OP_ZK_DIGEST,
   OP_ZK_SIGN,
   OP_ZK_VERIFY,
+  OP_ZK_HP_AT,     /* zkHpAt P w: H_p(P) at the context w (restrict-lang S5, Q-S5-1 (a)) */
+  OP_ZK_SIGN_AT,   /* zkSignAt ring x w m: a bLSAG with H_p at the context w */
+  OP_ZK_VERIFY_AT, /* zkVerifyAt ring w m sig: the verify of zkSignAt */
   OP_ZK_BALLOT,  /* ZkBallot C: the private ballot carrier for choices C (S8 B2b) */
   OP_ZK_WITNESS, /* ZkWitness: the witness carrier; OP_WITNESS is the Sigma projection */
   OP_ZK_CAST,    /* zkCast M C m c: a canonical ballot, the arguments kept */
