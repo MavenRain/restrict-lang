@@ -191,6 +191,13 @@ the host form of each former.
 |---|---|---|
 | `Move` | a move of the token (docs/PLAN.md 3.2) | S3: `Sum (Prod Addr (Prod Addr U256)) (Sum (Prod Addr U256) (Prod Addr U256))` in `examples/mirror.lang`, with the helpers `transfer f t x`, `mint t x` and `burn f x`. A program cannot declare a family (`REFUSE_DATA`). |
 | the mirror state | the balances that the hooks keep (3.2) | S3: `bal : Map Addr U256`, `holders : U256`, `holdersIn : Map U256 U256`, `lockEnd : Map Addr Nat`, `bound : Addr`, `decided : Addr`. |
+| `R.Dec P` | a decided proposition (3.3) | S4, probe-forced: `Sum P (P -> Empty)` (PLAN section 13). `Flag` has no `elim`, so the `rules` form lifts each test to `R.B := Sum Unit Unit` and decides `R.Holds b := Path R.B b R.yes`. |
+| `R` (the rules form) | the product of the rules of a token (3.3) | S4: `rules R S M T := r1 \| ... \| rk` gives `R : S -> Env -> M -> Type 0`, the right-nested `Prod` of the `R.rule.ri.holds s e m`. In `examples/restrict.lang`, `R` is `allowed` with the rules `holderCap`, `classCap`, `countryIn` and `lockUp`. |
+
+Source names may have dot-separated identifier components, so a program
+can use `R.Dec`, `R.dec`, `R.rule.ri.holds` and `R.rule.ri.dec`. Leading
+dots remain internal to generated binders. Per-rule names are separate
+from helpers, so tests named `dec`, `bit` or `both` are valid.
 
 ## 6. Core operations
 
@@ -203,6 +210,10 @@ the host form of each former.
 | `transferred`, `created`, `destroyed` | entries | S3: each one runs `step`. Each one reverts unless a token is bound and the caller is that token (L9, `test/run/mirror.script`). No hook reverts for a rule (Q9). |
 | `bindToken`, `unbindToken` | entries | S3: apply the DAO decision in the slot `decided` (Q-S3-2 (a)); emit `TokenBound` and `TokenUnbound`. |
 | `isTokenBound`, `getTokenBound` | views | S3: the bound token. `getTokenBound` is a view with no parameter (O6). |
+| `rules R S M T := r1 \| ... \| rk` | a kit form | S4 (Q-S4-1 (a)): each `ri` is a program def of type `S -> Env -> M -> Flag`. The form elaborates to text (as `cofamily` does): 10 helpers, `R.rule.ri.holds` and `R.rule.ri.dec` for each rule, `R`, `R.dec`, `R.bit` and `canTransfer`. A rule that is not a `Flag` test gives `TYPE_MISMATCH` in its def `R.rule.ri.holds` (O5, `test/check/rules-no-dec.lang`). In guest mode the form gives `REFUSE_KIT`. |
+| `holderCap`, `classCap`, `countryIn`, `lockUp` | `State -> Env -> Move -> Flag` | S4: the rule tests of `examples/restrict.lang`. `holderCap`: `holders (step s e m) <= capN`. `classCap`: `holdersIn (step s e m) capC <= capCN`. `countryIn`: `inSet (clsCode s t)` (class 0 only until S5, Q-S4-2 (a)). `lockUp`: `lockEnd s f <= now e`, with `f` from `moveFrom` (`noAddr` for a mint, Q-S4-5 (a)). A cap decides on the state after the move (L3). |
+| `canTransfer` | `(env : Env) -> (s : State) -> (f t : Addr) -> (x : U256) -> Flag` | S4: a view, the first bit of `R.dec s env (T f t x)` (L1 by construction). Mint and burn are not checked (the EIP bypass). |
+| `transferred` (S4) | entry | S4 (Q-S4-6 (a)): in `examples/restrict.lang`, `transferred` emits `Broken f t x` when `canTransfer` is no on the state before the move, and it still runs `step` (Q9). `created` and `destroyed` do not emit it. |
 | | | |
 
 ## 7. Target and instance encoding

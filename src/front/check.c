@@ -4052,6 +4052,10 @@ static int check_def_body(Checker *c, const Decl *d, const Value *tv, const Core
   int law;
   if (body == NULL || !check_sig(c, d, tv))
     return 0;
+  /* check_program counts the definitions; a count that is too small fails
+     here and does not write past the array. */
+  if (m->def_count >= m->def_cap)
+    return FAIL(c, "OOM", "out of memory");
   if (has_history(m) && strcmp(d->name, "init") != 0 && !is_family(tv, m->state_family) && !history_ok(c, body, mentions_state(m, c->level, tv)))
     return 0;
   /* Rule O7 (S5): the domain marks its law defs; a program def is law-only
@@ -4512,6 +4516,127 @@ static int check_cofamily(Checker *c, const Decl *d) {
   return 1;
 }
 
+/* The number of helper definitions of a rules form (PLAN section 13). */
+#define RULES_HELPERS 10u
+
+/* The helpers of a rules form: `$` is the name of the form. R.B and R.lift
+   lift a Flag test to Sum Unit Unit, R.no gives the disjointness by transp,
+   R.decide decides R.Holds, R.both decides a product and R.bitOf takes the
+   first bit of a Dec term. */
+static const char RULES_HELPER_TEXT[] =
+  "def $.B : Type 0 := Sum Unit Unit\n"
+  "def $.yes : $.B := inl unit\n"
+  "def $.lift : Flag -> $.B := fun (.b : Flag) => flagIf .b (inl unit) (inr unit)\n"
+  "def $.Holds : $.B -> Type 0 := fun (.x : $.B) => Path $.B .x $.yes\n"
+  "def $.Dec : Type 0 -> Type 0 := fun (.P : Type 0) => Sum .P (.P -> Empty)\n"
+  "def $.Code : $.B -> Type 0 := fun (.x : $.B) => elim (fun (.y : $.B) => Type 0) (fun (.u : Unit) => Empty) (fun (.u : Unit) => Unit) .x\n"
+  "def $.no : (.u : Unit) -> Path $.B (inr .u) $.yes -> Empty :=\n"
+  "  fun (.u : Unit) (.p : Path $.B (inr .u) $.yes) => transp (fun (.i : I) => $.Code (.p @ .i)) i0 unit\n"
+  "def $.decide : (.x : $.B) -> $.Dec ($.Holds .x) :=\n"
+  "  fun (.x : $.B) => elim (fun (.y : $.B) => $.Dec ($.Holds .y))\n"
+  "    (fun (.u : Unit) => elim (fun (.v : Unit) => $.Dec ($.Holds (inl .v))) (inl refl) .u)\n"
+  "    (fun (.u : Unit) => inr ($.no .u)) .x\n"
+  "def $.both : (.P : Type 0) -> (.Q : Type 0) -> $.Dec .P -> $.Dec .Q -> $.Dec (Prod .P .Q) :=\n"
+  "  fun (.P : Type 0) (.Q : Type 0) (.dp : $.Dec .P) (.dq : $.Dec .Q) =>\n"
+  "    either (fun (.p : .P) => either (fun (.q : .Q) => inl (pair .p .q)) (fun (.nq : .Q -> Empty) => inr (fun (.r : Prod .P .Q) => .nq (second .r))) .dq)\n"
+  "      (fun (.np : .P -> Empty) => inr (fun (.r : Prod .P .Q) => .np (first .r))) .dp\n"
+  "def $.bitOf : (.P : Type 0) -> $.Dec .P -> Flag :=\n"
+  "  fun (.P : Type 0) (.d : $.Dec .P) => either (fun (.p : .P) => flagYes) (fun (.q : .P -> Empty) => flagNo) .d\n";
+
+/* Append TEMPLATE with each `$` replaced by the name RN. */
+static void text_named(Text *t, const char *rn, const char *template) {
+  const char *p = template;
+  const char *q;
+  while ((q = strchr(p, '$')) != NULL) {
+    text_add(t, "%.*s%s", (int)(q - p), p, rn);
+    p = q + 1;
+  }
+  text_add(t, "%s", p);
+}
+
+/* The product of the rules of D from rule I on, at .s .e .m, right nested. */
+static void rules_prod(Text *t, const Decl *d, size_t i) {
+  size_t j;
+  for (j = i; j + 1u < d->ctor_count; j++)
+    text_add(t, "Prod (%s.rule.%s.holds .s .e .m) (", d->name, d->ctors[j].name);
+  text_add(t, "%s.rule.%s.holds .s .e .m", d->name, d->ctors[d->ctor_count - 1u].name);
+  for (j = i; j + 1u < d->ctor_count; j++)
+    text_add(t, ")");
+}
+
+/* The dec term of the product from rule I on: R.both, right nested. */
+static void rules_dec(Text *t, const Decl *d, size_t i) {
+  const char *rn = d->name;
+  size_t j;
+  for (j = i; j + 1u < d->ctor_count; j++) {
+    text_add(t, "%s.both (%s.rule.%s.holds .s .e .m) (", rn, rn, d->ctors[j].name);
+    rules_prod(t, d, j + 1u);
+    text_add(t, ") (%s.rule.%s.dec .s .e .m) (", rn, d->ctors[j].name);
+  }
+  text_add(t, "%s.rule.%s.dec .s .e .m", rn, d->ctors[d->ctor_count - 1u].name);
+  for (j = i; j + 1u < d->ctor_count; j++)
+    text_add(t, ")");
+}
+
+/* The elaboration of `rules R S M T := r1 | ... | rk` (restrict-lang S4,
+   PLAN section 13): the helpers, then for each rule R.rule.ri.holds and
+   R.rule.ri.dec, then the product R, its dec term R.dec, the bit R.bit and
+   the view canTransfer (L1: the first bit of R.dec). The per-rule names
+   cannot collide with helpers, even when ri is a qualified name.
+   Generated binders start with `.`, so they never capture a user name. */
+static void rules_text(Text *t, const Decl *d) {
+  const char *rn = d->name;
+  const char *sn = d->params[0].name;
+  const char *mn = d->params[1].name;
+  const char *tn = d->params[2].name;
+  size_t i;
+  text_named(t, rn, RULES_HELPER_TEXT);
+  for (i = 0; i < d->ctor_count; i++) {
+    const char *r = d->ctors[i].name;
+    text_add(t, "def %s.rule.%s.holds : %s -> Env -> %s -> Type 0 := fun (.s : %s) (.e : Env) (.m : %s) => %s.Holds (%s.lift (%s .s .e .m))\n", rn, r, sn, mn, sn, mn, rn, rn, r);
+    text_add(t, "def %s.rule.%s.dec : (.s : %s) -> (.e : Env) -> (.m : %s) -> %s.Dec (%s.rule.%s.holds .s .e .m) :=\n  fun (.s : %s) (.e : Env) (.m : %s) => %s.decide (%s.lift (%s .s .e .m))\n", rn, r, sn, mn, rn, rn, r, sn, mn, rn, rn, r);
+  }
+  text_add(t, "def %s : %s -> Env -> %s -> Type 0 := fun (.s : %s) (.e : Env) (.m : %s) => ", rn, sn, mn, sn, mn);
+  rules_prod(t, d, 0u);
+  text_add(t, "\ndef %s.dec : (.s : %s) -> (.e : Env) -> (.m : %s) -> %s.Dec (%s .s .e .m) :=\n  fun (.s : %s) (.e : Env) (.m : %s) => ", rn, sn, mn, rn, rn, sn, mn);
+  rules_dec(t, d, 0u);
+  text_add(t, "\ndef %s.bit : %s -> Env -> %s -> Flag := fun (.s : %s) (.e : Env) (.m : %s) => %s.bitOf (%s .s .e .m) (%s.dec .s .e .m)\n", rn, sn, mn, sn, mn, rn, rn, rn);
+  text_add(t, "def canTransfer : (env : Env) -> (s : %s) -> (f t : Addr) -> (x : U256) -> Flag :=\n  fun (.env : Env) (.s : %s) (.f : Addr) (.t : Addr) (.x : U256) => %s.bit .s .env (%s .f .t .x)\n", sn, sn, rn, tn);
+}
+
+/* The rules form (restrict-lang S4, Q-S4-1 (a)): a kit form. The generated
+   text is lexed with `.` as a name character, parsed as program text and
+   checked declaration by declaration. A rule that is not a test of type
+   S -> Env -> M -> Flag fails in R.rule.ri.holds (TYPE_MISMATCH, O5). */
+static int check_rules(Checker *c, const Decl *d) {
+  Machine *m = c->m;
+  size_t size = strlen(d->name) + 7u;
+  char *source;
+  Text t = {NULL, 0, 0};
+  TokenList toks = {0};
+  DeclList list = {NULL, 0, 0};
+  size_t i;
+  if (guest(c))
+    return kit_refused(c, "the rules form");
+  source = arena_alloc(m->arena, size);
+  if (source == NULL)
+    return FAIL(c, "OOM", "out of memory");
+  snprintf(source, size, "rules %s", d->name);
+  rules_text(&t, d);
+  t.cap = t.len + 1u;
+  t.len = 0;
+  t.text = arena_alloc(m->arena, t.cap);
+  if (t.text == NULL)
+    return FAIL(c, "OOM", "out of memory");
+  rules_text(&t, d);
+  if (!lex_internal(m->arena, source, t.text, t.len, &toks, m->diag) || !parse_source(m->arena, source, ORIGIN_PROGRAM, &toks, &list, m->diag))
+    return 0;
+  for (i = 0; i < list.count; i++)
+    if (!check_generated(c, &list.items[i]))
+      return 0;
+  return 1;
+}
+
 static int check_decl(Checker *c, const Decl *d) {
   if ((d->is_event || d->is_state) && guest(c))
     return kit_refused(c, d->is_state ? "the state form" : "an event");
@@ -4536,6 +4661,8 @@ static int check_decl(Checker *c, const Decl *d) {
     return check_family(c, d);
   case DECL_COFAMILY:
     return check_cofamily(c, d);
+  case DECL_RULES:
+    return check_rules(c, d);
   case DECL_DEF:
   case DECL_AXIOM:
     break;
@@ -4553,12 +4680,15 @@ int check_program(Arena *arena, const DeclList *decls, Machine *m, Diag *diag, C
   m->diag = diag;
   m->fuel = EVAL_FUEL_STEPS;
   /* A cofamily with F fields elaborates to at most 2F + 4 definitions, one
-     family and F + 1 constructors (S4). */
+     family and F + 1 constructors (S4). A rules form with K rules
+     elaborates to RULES_HELPERS + 2K + 4 definitions (restrict-lang S4). */
   for (i = 0; i < decls->count; i++) {
     size_t fields = decls->items[i].kind == DECL_COFAMILY && decls->items[i].ctor_count == 1u ? decls->items[i].ctors[0].field_count : 0u;
     int cofamily = decls->items[i].kind == DECL_COFAMILY;
+    int rules = decls->items[i].kind == DECL_RULES;
     ctors += decls->items[i].ctor_count + (cofamily ? fields + 1u : 0u);
     extra += cofamily ? 2u * fields + 8u : 0u;
+    extra += rules ? RULES_HELPERS + 2u * decls->items[i].ctor_count + 4u : 0u;
   }
   m->defs = arena_alloc(arena, (decls->count + extra + 1u) * sizeof *m->defs);
   m->families = arena_alloc(arena, (decls->count + extra + 1u) * sizeof *m->families);

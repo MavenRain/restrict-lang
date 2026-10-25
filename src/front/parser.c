@@ -163,6 +163,7 @@ static int starts_atom(TokKind kind) {
     case TOK_KW_COFAMILY:
     case TOK_KW_SEALED:
     case TOK_KW_LAW:
+    case TOK_KW_RULES:
       return 0;
   }
   return 0;
@@ -402,6 +403,7 @@ static const Term *parse_atom(Parser *p) {
     case TOK_KW_COFAMILY:
     case TOK_KW_SEALED:
     case TOK_KW_LAW:
+    case TOK_KW_RULES:
       break;
   }
   fail_at(p, tok, "a term");
@@ -593,6 +595,48 @@ static int parse_event(Parser *p, Decl *d) {
   return parse_fields(p, 0, &ctor->fields, &ctor->field_count);
 }
 
+/* `rules R S M T := r1 | ... | rk` (restrict-lang S4, Q-S4-1 (a)): names
+   only. The params hold the state type S, the move type M and the transfer
+   helper T, with no types. The constructors hold the rule names, with no
+   fields. The checker elaborates the form to text. */
+static int parse_rules(Parser *p, Decl *d) {
+  static const char *const WHAT[] = {"a state type name", "a move type name", "a transfer helper name"};
+  Field *names;
+  Ctor *ctors = NULL;
+  size_t cap = 0;
+  size_t count = 0;
+  size_t j;
+  bump(p);
+  d->kind = DECL_RULES;
+  d->name = take_name(p, "a rules name");
+  if (d->name == NULL) return 0;
+  p->def = d->name;
+  names = grow(p, NULL, 0, &cap, sizeof *names);
+  if (names == NULL) return 0;
+  for (j = 0; j < 3u; j++) {
+    names[j].line = cur(p)->line;
+    names[j].col = cur(p)->col;
+    names[j].name = take_name(p, WHAT[j]);
+    if (names[j].name == NULL) return 0;
+  }
+  d->params = names;
+  d->param_count = 3u;
+  if (!expect(p, TOK_DEFINE, "':='")) return 0;
+  cap = 0;
+  do {
+    ctors = grow(p, ctors, count, &cap, sizeof *ctors);
+    if (ctors == NULL) return 0;
+    ctors[count].line = cur(p)->line;
+    ctors[count].col = cur(p)->col;
+    ctors[count].name = take_name(p, "a rule name");
+    if (ctors[count].name == NULL) return 0;
+    count++;
+  } while (eat(p, TOK_BAR));
+  d->ctors = ctors;
+  d->ctor_count = count;
+  return 1;
+}
+
 /* `and NAME params [: index] := ctor | ...` (S6): the next sort of the
    block that FIRST starts. Only a `family` declaration starts a block; a
    `cofamily` is parsed with its block so that the checker refuses it (S4). */
@@ -640,6 +684,7 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_KW_STATE:
     case TOK_KW_COFAMILY: return parse_family(p, d);
     case TOK_KW_EVENT: return parse_event(p, d);
+    case TOK_KW_RULES: return parse_rules(p, d);
     case TOK_EOF:
     case TOK_IDENT:
     case TOK_NAT:
@@ -666,7 +711,7 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_KW_AND:
       break;
   }
-  return fail_at(p, tok, "'def', 'axiom', 'family', 'cofamily', 'state', 'event', 'sealed' or 'law'");
+  return fail_at(p, tok, "'def', 'axiom', 'family', 'cofamily', 'state', 'event', 'sealed', 'law' or 'rules'");
 }
 
 int parse_source(Arena *arena, const char *source, Origin origin, const TokenList *toks, DeclList *list, Diag *diag) {

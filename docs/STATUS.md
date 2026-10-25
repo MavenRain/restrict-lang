@@ -35,6 +35,18 @@
   `isTokenBound`, `getTokenBound`) and the L6 laws by `refl` (16 paths).
   `test/run/mirror.script` shows L9: each hook from an address that is not
   the bound token reverts. The kernel does not change.
+- S4 (Part R): the kit form `rules R S M T := r1 | ... | rk` (lexer
+  `TOK_KW_RULES`, ast `DECL_RULES`, parser `parse_rules`, checker
+  `check_rules`). The form elaborates to text and checks each generated
+  def: the `Dec` helpers, a proposition and a `dec` term for each rule,
+  their product `R`, `R.dec`, `R.bit` and the view `canTransfer` (L1). A
+  rule that is not a `Flag` test gives `TYPE_MISMATCH` (O5). The checker
+  now refuses a def past `def_cap` with `OOM` (before S4, nothing checked
+  that cap). `examples/restrict.lang` is `examples/mirror.lang` with the
+  four rule tests, one form and the event `Broken`, and 23 more `refl`
+  paths (L1, rules-cap L3 and L6, rules-lock L4). `test/run/restrict.script`
+  shows the lock-up and the holder cap, `Broken` on a forced move, and the
+  mint bypass.
 
 ## Remaining M0 work
 

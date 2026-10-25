@@ -92,3 +92,4 @@ cofamily-state.lang
 enc-state.lang
 quorum-state.lang
 transcript-state.lang
+rules-no-dec.lang

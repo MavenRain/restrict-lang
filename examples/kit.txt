@@ -33,3 +33,4 @@ enc-ideal.lang
 threshold.lang
 onehot.lang
 mirror.lang
+restrict.lang

@@ -216,8 +216,60 @@ static int prove_output(int trap, int broken, const char *poll) {
   return ok;
 }
 
+static int rules_regressions(void) {
+  static const char PRELUDE[] =
+    "family Empty := emptyLoop (emptyOf : Empty)\n"
+    "family Env := makeEnv (now : Nat) (caller : Addr)\n";
+  static const char TRANSFER[] =
+    "def transfer : Addr -> Addr -> U256 -> Unit := fun f t x => unit\n";
+  static const char *const NAMES[] = {
+    "accept", "B", "yes", "lift", "Holds", "Dec", "Code", "no",
+    "decide", "both", "bitOf", "dec", "bit"
+  };
+  char source[4096];
+  size_t i;
+  int ok = 1;
+  /* Rule names must not collide with the generated decision helpers. */
+  for (i = 0; i < sizeof NAMES / sizeof NAMES[0]; i++) {
+    snprintf(source, sizeof source,
+      "%sdef %s : Unit -> Env -> Unit -> Flag := fun s e m => flagYes\n"
+      "rules allowed Unit Unit transfer := %s\n", TRANSFER, NAMES[i], NAMES[i]);
+    ok &= checked_in(PRELUDE, source, ORIGIN_PROGRAM, CHECK_KIT, NULL);
+  }
+  /* Programs can use the exported product and each rule's decision. */
+  snprintf(source, sizeof source,
+    "%sdef accept : Unit -> Env -> Unit -> Flag := fun s e m => flagYes\n"
+    "rules allowed Unit Unit transfer := accept\n"
+    "def decision : (s : Unit) -> (e : Env) -> (m : Unit) -> "
+      "allowed.Dec (allowed s e m) := allowed.dec\n"
+    "def ruleDecision : (s : Unit) -> (e : Env) -> (m : Unit) -> "
+      "allowed.Dec (allowed.rule.accept.holds s e m) := allowed.rule.accept.dec\n",
+    TRANSFER);
+  ok &= checked_in(PRELUDE, source, ORIGIN_PROGRAM, CHECK_KIT, NULL);
+  /* Qualified input names cannot alias a neighboring rule's decision. */
+  ok &= checked_in(PRELUDE,
+    "def state.Data : Type 0 := Unit\n"
+    "def move.Data : Type 0 := Unit\n"
+    "def token.transfer : Addr -> Addr -> U256 -> move.Data := fun f t x => unit\n"
+    "def policy.test : state.Data -> Env -> move.Data -> Flag := fun s e m => flagYes\n"
+    "def policy.test.dec : state.Data -> Env -> move.Data -> Flag := fun s e m => flagNo\n"
+    "rules token.allowed state.Data move.Data token.transfer := policy.test | policy.test.dec\n"
+    "def decision : (s : state.Data) -> (e : Env) -> (m : move.Data) -> "
+      "token.allowed.Dec (token.allowed s e m) := token.allowed.dec\n"
+    "def rejects : (e : Env) -> (f t : Addr) -> (x : U256) -> "
+      "Path Flag (canTransfer e unit f t x) flagNo := fun e f t x => refl\n",
+    ORIGIN_PROGRAM, CHECK_KIT, NULL);
+  /* Qualified user names still cannot introduce internal binder names. */
+  ok &= guest("def .s : Unit := unit", "LEX_CHAR");
+  ok &= guest("def user..s : Unit := unit", "LEX_CHAR");
+  ok &= guest("def user. : Unit := unit", "LEX_CHAR");
+  ok &= guest("rules allowed Unit Unit unit := unit", "REFUSE_KIT");
+  return ok;
+}
+
 int main(void) {
   int ok = 1;
+  ok &= rules_regressions();
   ok &= prove_output(0, 1, NULL);
   ok &= prove_output(1, 1, NULL);
   ok &= prove_output(0, 0, NULL);

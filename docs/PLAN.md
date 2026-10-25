@@ -225,6 +225,38 @@ A mint and a burn are not checked by `canTransfer`. The EIP says that mint
 and burn bypass the compliance rules. `created` and `destroyed` only update
 the mirror.
 
+S4 notes (2026-10-24). The kernel change is in five files:
+src/front/lexer.h and src/front/lexer.c (`TOK_KW_RULES`, the keyword
+`rules`), src/front/ast.h (`DECL_RULES`: the params hold S, M and T, and
+the ctors hold the rule names), src/front/parser.c (`parse_rules`, which
+`parse_decl` calls) and src/front/check.c (`RULES_HELPERS`,
+`RULES_HELPER_TEXT`, `text_named`, `rules_prod`, `rules_dec`,
+`rules_text`, `check_rules`). The checker writes the text two times (first
+to get the size, then into the arena). It lexes the text with
+`lex_internal`, parses it as `ORIGIN_PROGRAM` (the cofamily uses
+`ORIGIN_DOMAIN`) and checks each generated declaration with
+`check_generated`. The generated binders start with `.` (`.env .s .f .t
+.x`), so they do not capture R, S, M or T. The surprises:
+
+- `m->def_cap` was set, but nothing checked it. S4 adds the guard in
+  `check_def_body`, the one writer of `m->defs`: a def past the cap gives
+  `OOM`.
+- The count `RULES_HELPERS + 2K + 4` has one spare slot, because the form
+  declaration is in `decls->count` and adds no def. Thus the mutant
+  `RULES_HELPERS 9u` survives (an equivalent mutant). The guard fires only
+  when a count is short by more than the spare slots (the form and each
+  event, which add no def).
+- In guest mode, `examples/restrict.lang` and `rules-no-dec.lang` give
+  `REFUSE_KIT` at `Move` (`Addr`) before the form. Thus S4 has no guest
+  row for the form.
+- `langc run` calls `canTransfer` as a view with no change to the runner.
+- Review fixes: source names admit dot-separated components, so programs
+  can use the generated decisions. Leading dots stay internal. Per-rule
+  propositions and decisions are `R.rule.ri.holds` and `R.rule.ri.dec`,
+  separate from helpers even when a test is named `dec`, `bit` or `both`.
+  `test/fronttool.c` checks all helper-name collisions, exported decisions,
+  qualified input names, the false branch and the guest boundary.
+
 ### 3.4 Part C: identity claims as ZK credentials
 
 In ERC-3643 a wallet maps to an ONCHAINID identity. Trusted issuers sign
@@ -475,8 +507,8 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S1 | USER rules Q1-Q14; this plan records the rulings | DONE |
 | S2 | port intent-lang ef5abe8 (section 6); gate = the intent-lang S7 counters | DONE: `make -B check` EXIT 0 with the intent-lang S7 counters: 49 examples, 0 failed; 19 parse, 186 check and 22 kit-only refusals; 188 evals, 2 proves; contracts 2 written and 5 refused; rings 6 built and 2 refused; 28 guest and 14 host differential rows; 5 runs, 10 run refusals; 8 asmtool; 3 builds, 16 lower refusals, 33 build checks; 20 dispatch; 43 evm steps; 14 precompile rows and 143 steps; 13 mock rows; 15 diff rows; 24 emit regressions; the 13 "regressions: passed" lines; 0 failures. The log is byte for byte the intent-lang S7 log (section 6) |
 | S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | DONE (2026-10-24): `examples/mirror.lang` (16 L6 paths by `refl`) and `test/run/mirror.script` (17 rows, L9); the kernel does not change. `make -B check` EXIT 0. Two counters change from the S2 log: examples 49 -> 50 (`mirror.lang` in `examples/kit.txt`) and runs 5 -> 6 (`test/run/mirror.script`); all other lines are the S2 lines; 0 failures. Mutants: 7 (L6 x5, L9 x2), 7 KILLED; the gate after the restore is byte for byte the S3 gate log |
-| S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | NEXT |
-| S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | |
+| S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | DONE (2026-10-24): the kit form `rules` in five src/front files (section 3.3, S4 notes); `examples/restrict.lang` (`mirror.lang` with Part R: four rule tests, one form, `Broken`; 23 more `refl` paths: L1 x5, rules-cap x13, rules-lock x5), `test/check/rules-no-dec.lang` (`TYPE_MISMATCH`, O5) and `test/run/restrict.script` (14 rows). `make -B check` EXIT 0. Three counters change from the S3 log: examples 50 -> 51 (`restrict.lang` in `examples/kit.txt`), check refusals 186 -> 187 (`rules-no-dec.lang`) and runs 6 -> 7 (`test/run/restrict.script`); all other lines are the S3 lines; 0 failures. Mutants: 7 (L1, L3 x2, L4, O5, `Broken`, `RULES_HELPERS 9u`), 6 KILLED, 1 SURVIVED (an equivalent mutant, section 3.3 S4 notes); the gate after the restore is byte for byte the S4 gate log |
+| S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | NEXT |
 | S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | |
 | S7 | the contract writer: the ABI of section 7, the events, chain rows on the test token (Q13) | |
 | S8 | mutants, SPEC, VALIDATION, close | |
@@ -641,3 +673,105 @@ The S3 survey (2026-10-24) checked the three proposals before the build:
   (src/front/check.c:191-194).
 
 No question changes the build of S3. The USER can rule each one later.
+
+## 13. Questions of S4
+
+Each one is a builder call (a); the USER can rule otherwise. None changes
+the content of the build of S4 (STEP 3 of the S4 prompt). Q-S4-7 changes
+only how the rows of section 8 are put into files.
+
+The S4 survey (2026-10-24) checked these facts with `build/langc --kit
+check` on the probes in `~/Documents/restrict-lang-work/S4-probes/` (p1
+prints ok; p2 gives `TYPE_MISMATCH`):
+
+- `Flag` is a kit base type (src/front/check.c:138, `RULE_TYPE0`), not a
+  family. `elim` does not take a `Flag`, and `flagIf` is not dependent. So
+  no term decides `Path Flag b flagYes` for a variable `b`. The fallback of
+  section 3.3 fails for the same cause.
+- `Sum Unit Unit` has a dependent `elim`, and a motive into `Type 0` checks.
+  `transp` over that motive gives `Path B (inr u) (inl unit) -> Empty`
+  (p1 `noB`). So `Dec P := Sum P (P -> Empty)` is the form of section 3.3.
+  Each rule test is a `Flag`, and the form lifts it to `B := Sum Unit Unit`
+  with `flagIf b (inl unit) (inr unit)` (p1 `toB`, `decB`).
+- The kit `Empty` is `family Empty := emptyLoop (emptyOf : Empty)`
+  (domain/domain.lang:75). `P -> Empty` and `Sum P (P -> Empty)` check.
+- The `Dec` of a product checks with two `either` (p1 `decAnd`). The bit of
+  a closed `Dec` term normalizes, so `refl` checks it (p1 `yesBit`, `noBit`,
+  `andBit`).
+- A def of type `Addr -> Flag` whose body is a proposition over all
+  addresses gives `TYPE_MISMATCH` (p2). This is the O5 code.
+- The language has no import form (src/front/parser.c has none).
+- The cofamily form is the model of O4. `check_cofamily`
+  (src/front/check.c:4479) writes text from the names of the declaration,
+  lexes it with `.` as a name character (`lex_internal`), parses it
+  (`parse_source`) and checks each declaration (`check_generated`, :4447).
+  `check_program` (:4555) counts the extra definitions before the check.
+- `examples/mirror.lang:31` has a def `dec` (the U256 decrement), so the
+  generated names have the form name as a prefix.
+- A refusal row is a line `FILE CODE` of test/check/expect.txt. A file that
+  checks in kit mode is a line of test/check/kit.txt or examples/kit.txt.
+  `langc check` prints ok for each file of examples/.
+
+The questions:
+
+- Q-S4-1 the `rules` form. (a) `rules R S M T := r1 | ... | rk`. `R` is the
+  name of the form. `S` and `M` are the names of the state type and the move
+  type. `T` is the transfer helper (`Addr -> Addr -> U256 -> M`). Each `ri`
+  is a program def of type `S -> Env -> M -> Flag`: the test of the rule.
+  The form takes names only, so it elaborates to text as `check_cofamily`
+  does, and each generated declaration is checked as a program def, in this
+  order:
+
+  | Name | Text |
+  |---|---|
+  | `R.B`, `R.yes`, `R.lift`, `R.Holds` | `Sum Unit Unit`; `inl unit`; `fun (b : Flag) => flagIf b (inl unit) (inr unit)`; `fun (x : R.B) => Path R.B x R.yes` |
+  | `R.Dec` | `fun (P : Type 0) => Sum P (P -> Empty)` |
+  | `R.Code`, `R.no` | the motive into `Type 0` and the `transp` term (p1 `Code`, `noB`) |
+  | `R.decide` | `(x : R.B) -> R.Dec (R.Holds x)` by `elim` (p1 `decB`) |
+  | `R.both`, `R.bitOf` | p1 `decAnd` and `bitOf` |
+  | `R.rule.ri.holds` | `S -> Env -> M -> Type 0 := fun (s : S) (e : Env) (m : M) => R.Holds (R.lift (ri s e m))` |
+  | `R.rule.ri.dec` | `(s : S) -> (e : Env) -> (m : M) -> R.Dec (R.rule.ri.holds s e m) := fun ... => R.decide (R.lift (ri s e m))` |
+  | `R` | `S -> Env -> M -> Type 0`: the right-nested `Prod` of the `R.rule.ri.holds s e m` (k = 1: `R.rule.r1.holds s e m`) |
+  | `R.dec` | `(s : S) -> (e : Env) -> (m : M) -> R.Dec (R s e m)` by `R.both`, right nested |
+  | `R.bit` | `S -> Env -> M -> Flag := fun ... => R.bitOf (R s e m) (R.dec s e m)` |
+  | `canTransfer` | `(env : Env) -> (s : S) -> (f t : Addr) -> (x : U256) -> Flag := fun ... => R.bit s env (T f t x)` |
+
+  The view has the EIP name and ABI (section 7). L1 holds by construction:
+  `canTransfer` is the first bit of `R.dec`. A rule `ri` that is not a
+  `Flag` test makes `R.rule.ri.holds` fail with `TYPE_MISMATCH` (O5, p2). The form is
+  a kit form: in guest mode it gives `REFUSE_KIT` (`kit_refused`), as the
+  state form does. (b) The form takes terms (`ri fun (s : S) ... => ...`,
+  or `ri : P by d` with a `dec` term `d`). Then the checker must put parsed
+  terms into the generated text, and the kernel has no printer of terms.
+  This is later work.
+- Q-S4-2 `CountryIn S` before Part C. (a) The test reads `clsCode s t`
+  (class 0 for each address, Q-S3-1 (a)) and a fixed set `inSet : U256 ->
+  Flag` (S4: class 0 only). S5 changes only the bodies of `clsCode` and the
+  set. (b) S4 leaves `CountryIn` to S5.
+- Q-S4-3 `ClassCap c n`. (a) `u256Le (mapGet (holdersIn (step s e m)) capC)
+  capCN`, with `holdersIn` keyed by `clsCode` (Q-S3-1 (a)).
+- Q-S4-4 the parameters `n`, `c`, `S` and `d`. (a) Constant defs in the
+  example (`capN`, `capC`, `capCN`, `inSet`; `lockD` stays) until the
+  `Params` of S6, as `lockD` in S3.
+- Q-S4-5 the sender of a move. `LockUp` reads `lockEnd s f`, and a mint has
+  no `f`. (a) A helper `moveFrom : Move -> Addr`: a mint gives `noAddr`,
+  whose lock end is 0. `canTransfer` checks transfers only (the EIP bypass).
+- Q-S4-6 `Broken` (Q9 (a)). (a) S4 adds `event Broken (brokenFrom : Addr)
+  (brokenTo : Addr) (brokenAmount : U256)`. `transferred` emits it when
+  `canTransfer env s f t x` is no on the state before the move, and still
+  runs `step`. `created` and `destroyed` do not emit it (the EIP bypass).
+  (b) S7 adds it with the other events.
+- Q-S4-7 the files. A program cannot import a program. (a)
+  `examples/restrict.lang` is a copy of `examples/mirror.lang` (Part T) with
+  Part R, and S5 to S7 extend it. It holds the section 8 rows of
+  `rules-cap` (L1, L3) and of `rules-lock` (L4) as two groups of `refl`
+  laws. `test/check/rules-no-dec.lang` gives `TYPE_MISMATCH`.
+  `test/run/restrict.script` has the `now` column. `mirror.lang` and
+  `mirror.script` do not change, so the S3 counters stay. (b) Two more
+  copies of Part T, in `examples/rules-cap.lang` and
+  `examples/rules-lock.lang`, as section 8 names them.
+
+The counters that S4 can change: examples 50 -> 51 (`restrict.lang`),
+check refusals 186 -> 187 or more (`rules-no-dec.lang` and the refusal rows
+of the form), runs 6 -> 7 (`restrict.script`), and the fronttool lines if a
+host C test of the parser is necessary.

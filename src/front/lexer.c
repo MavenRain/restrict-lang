@@ -32,6 +32,7 @@ static const struct {
   {"cofamily", TOK_KW_COFAMILY},
   {"sealed", TOK_KW_SEALED},
   {"law", TOK_KW_LAW},
+  {"rules", TOK_KW_RULES},
 };
 
 const char *tok_kind_name(TokKind kind) {
@@ -68,6 +69,7 @@ const char *tok_kind_name(TokKind kind) {
     case TOK_KW_COFAMILY: return "'cofamily'";
     case TOK_KW_SEALED: return "'sealed'";
     case TOK_KW_LAW: return "'law'";
+    case TOK_KW_RULES: return "'rules'";
   }
   return "a token";
 }
@@ -136,7 +138,9 @@ static int lex_ident(Lexer *lx) {
   size_t start = lx->pos;
   int line = lx->line;
   int col = lx->col;
-  while (is_ident_char(peek(lx, 0)) || (lx->internal && peek(lx, 0) == '.')) advance(lx, 1);
+  while (is_ident_char(peek(lx, 0)) ||
+         (peek(lx, 0) == '.' && (lx->internal || is_ident_start(peek(lx, 1)))))
+    advance(lx, 1);
   push(lx, keyword_kind(lx->text + start, lx->pos - start), start, line, col);
   return 1;
 }

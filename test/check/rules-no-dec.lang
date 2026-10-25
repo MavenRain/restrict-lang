@@ -1,0 +1,9 @@
+-- restrict-lang S4 (O5): a rule with no dec term. The rule everyone is a
+-- proposition over all addresses, not a Flag test, so the rules form fails
+-- in its def allowed.everyone with TYPE_MISMATCH.
+def Move : Type 0 := Prod Addr (Prod Addr U256)
+def transfer : Addr -> Addr -> U256 -> Move := fun (f : Addr) (t : Addr) (x : U256) => pair f (pair t x)
+state State := makeState (bal : Map Addr U256)
+def everyone : State -> Env -> Move -> Type 0 :=
+  fun (s : State) (e : Env) (m : Move) => (a : Addr) -> Path U256 (mapGet (bal s) a) 0u
+rules allowed State Move transfer := everyone

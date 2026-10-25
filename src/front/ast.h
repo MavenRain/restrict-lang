@@ -66,7 +66,9 @@ typedef enum {
   DECL_DEF,    /* def [rec] name : type := body */
   DECL_AXIOM,  /* axiom name : type */
   DECL_FAMILY, /* family name params [: index] := ctor | ... [and ...] */
-  DECL_COFAMILY /* cofamily name params := corec field* (S4): elaborated */
+  DECL_COFAMILY, /* cofamily name params := corec field* (S4): elaborated */
+  DECL_RULES     /* rules R S M T := r1 | ... | rk (restrict-lang S4): the
+                    params are S M T, the ctors the rules; elaborated */
 } DeclKind;
 
 /* A family is legal only in the domain file (rule R1). ORIGIN_KIT is the

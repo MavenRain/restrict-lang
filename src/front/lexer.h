@@ -37,7 +37,8 @@ typedef enum {
   TOK_KW_AND,
   TOK_KW_COFAMILY,
   TOK_KW_SEALED, /* domain-only modifier of a family (S5) */
-  TOK_KW_LAW     /* domain-only modifier of a def (S5) */
+  TOK_KW_LAW,    /* domain-only modifier of a def (S5) */
+  TOK_KW_RULES   /* the rules form (restrict-lang S4): a kit form */
 } TokKind;
 
 typedef struct {
@@ -56,10 +57,11 @@ typedef struct {
   size_t count;
 } TokenList;
 
-/* SOURCE names the input in diagnostics. Returns 1, or 0 after a diagnostic. */
+/* SOURCE names the input in diagnostics. Names may contain dot-separated
+   identifier components. Returns 1, or 0 after a diagnostic. */
 int lex_source(Arena *arena, const char *source, const char *text, size_t len, TokenList *out, Diag *diag);
-/* As lex_source, and `.` is also a name character (S4): the text of the
-   declarations that the checker generates for a cofamily. */
+/* As lex_source, and `.` is also an initial name character (S4): the text
+   of the declarations that the checker generates for a cofamily or rules. */
 int lex_internal(Arena *arena, const char *source, const char *text, size_t len, TokenList *out, Diag *diag);
 const char *tok_kind_name(TokKind kind);
 

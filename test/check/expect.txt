@@ -184,3 +184,4 @@ open-leak.lang REFUSE_LAW
 quorum-state.lang REFUSE_STATE
 zk-leak.lang REFUSE_LAW
 transcript-state.lang REFUSE_STATE
+rules-no-dec.lang TYPE_MISMATCH
