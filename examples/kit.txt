@@ -34,3 +34,4 @@ threshold.lang
 onehot.lang
 mirror.lang
 restrict.lang
+ballot.lang

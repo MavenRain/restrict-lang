@@ -1,0 +1,156 @@
+-- restrict-lang S6 (docs/PLAN.md sections 3.1 and 4.4), guest mode: the
+-- charter law of the rule set (Q-S6-5 (a)) and the regime of the yes or no
+-- vote (Q-S6-6 (a), O13). The slots are those of examples/dao.lang, but the
+-- group swaps the two members (anonymity), so the yes or no rule is a
+-- constitution.
+def Member : Type 0 := Sum Unit Unit
+def Choice : Type 0 := Sum Unit Unit
+def Outcome : Type 0 := Choice
+def Group : Type 0 := Sum Unit Unit
+
+def flip : Choice -> Choice := fun (c : Choice) => either (fun (u : Unit) => inr unit) (fun (u : Unit) => inl unit) c
+
+-- swap m is the other member. act g c: g = inl unit keeps the configuration
+-- c, and g = inr unit swaps the two members.
+def swap : Member -> Member := fun (m : Member) => either (fun (u : Unit) => inr unit) (fun (u : Unit) => inl unit) m
+def act : Group -> (Member -> Choice) -> Member -> Choice :=
+  fun (g : Group) (f : Member -> Choice) (m : Member) => f (either (fun (u : Unit) => m) (fun (u : Unit) => swap m) g)
+
+-- Sets from loops: when each loop is refl, J on q gives isSet A.
+def setFromLoops : (A : Type 0) -> ((x : A) -> (p : Path A x x) -> Path (Path A x x) p refl) -> isSet A :=
+  fun (A : Type 0) (L : (x : A) -> (p : Path A x x) -> Path (Path A x x) p refl) (x : A) (y : A) (p : Path A x y) (q : Path A x y) =>
+    J A x (fun (z : A) (r : Path A x z) => (s : Path A x z) -> Path (Path A x z) s r) (L x) y q p
+
+-- Unit is a set. normU replaces a path from unit by the path that elim gives, and J shows that the two are equal.
+def normU : (c : Unit) -> Path Unit unit c -> Path Unit unit c :=
+  fun (c : Unit) (p : Path Unit unit c) => elim (fun (d : Unit) => Path Unit unit d) refl c
+def retrU : (c : Unit) -> (p : Path Unit unit c) -> Path (Path Unit unit c) p (normU c p) :=
+  fun (c : Unit) (p : Path Unit unit c) => J Unit unit (fun (d : Unit) (r : Path Unit unit d) => Path (Path Unit unit d) r (normU d r)) refl c p
+def loopsU : (x : Unit) -> (p : Path Unit x x) -> Path (Path Unit x x) p refl :=
+  fun (x : Unit) => elim (fun (y : Unit) => (p : Path Unit y y) -> Path (Path Unit y y) p refl) (fun (p : Path Unit unit unit) => retrU unit p) x
+def isSetUnit : isSet Unit := setFromLoops Unit loopsU
+
+-- Sum A B is a set when A and B are sets. normL sends a path from inl a to inl x through its A part (either with
+-- the default a) and keeps a path to inr b. On a loop at inl a, the A part is a loop in A, and isSet A makes it refl.
+def normL : (A : Type 0) -> (B : Type 0) -> (a : A) -> (c : Sum A B) -> Path (Sum A B) (inl a) c -> Path (Sum A B) (inl a) c :=
+  fun (A : Type 0) (B : Type 0) (a : A) (c : Sum A B) => elim (fun (d : Sum A B) => Path (Sum A B) (inl a) d -> Path (Sum A B) (inl a) d)
+    (fun (x : A) (p : Path (Sum A B) (inl a) (inl x)) => fun (i : I) => inl (either (fun (y : A) => y) (fun (b : B) => a) (p @ i)))
+    (fun (b : B) (p : Path (Sum A B) (inl a) (inr b)) => p) c
+def retrL : (A : Type 0) -> (B : Type 0) -> (a : A) -> (c : Sum A B) -> (p : Path (Sum A B) (inl a) c) -> Path (Path (Sum A B) (inl a) c) p (normL A B a c p) :=
+  fun (A : Type 0) (B : Type 0) (a : A) (c : Sum A B) (p : Path (Sum A B) (inl a) c) =>
+    J (Sum A B) (inl a) (fun (d : Sum A B) (r : Path (Sum A B) (inl a) d) => Path (Path (Sum A B) (inl a) d) r (normL A B a d r)) refl c p
+def loopL : (A : Type 0) -> (B : Type 0) -> isSet A -> (a : A) -> (q : Path (Sum A B) (inl a) (inl a)) -> Path (Path (Sum A B) (inl a) (inl a)) q refl :=
+  fun (A : Type 0) (B : Type 0) (sA : isSet A) (a : A) (q : Path (Sum A B) (inl a) (inl a)) =>
+    trans (Path (Sum A B) (inl a) (inl a)) q (normL A B a (inl a) q) refl (retrL A B a (inl a) q)
+      (fun (j : I) => fun (i : I) => inl ((sA a a (fun (k : I) => either (fun (y : A) => y) (fun (b : B) => a) (q @ k)) refl @ j) @ i))
+def normR : (A : Type 0) -> (B : Type 0) -> (b : B) -> (c : Sum A B) -> Path (Sum A B) (inr b) c -> Path (Sum A B) (inr b) c :=
+  fun (A : Type 0) (B : Type 0) (b : B) (c : Sum A B) => elim (fun (d : Sum A B) => Path (Sum A B) (inr b) d -> Path (Sum A B) (inr b) d)
+    (fun (a : A) (p : Path (Sum A B) (inr b) (inl a)) => p)
+    (fun (x : B) (p : Path (Sum A B) (inr b) (inr x)) => fun (i : I) => inr (either (fun (a : A) => b) (fun (y : B) => y) (p @ i))) c
+def retrR : (A : Type 0) -> (B : Type 0) -> (b : B) -> (c : Sum A B) -> (p : Path (Sum A B) (inr b) c) -> Path (Path (Sum A B) (inr b) c) p (normR A B b c p) :=
+  fun (A : Type 0) (B : Type 0) (b : B) (c : Sum A B) (p : Path (Sum A B) (inr b) c) =>
+    J (Sum A B) (inr b) (fun (d : Sum A B) (r : Path (Sum A B) (inr b) d) => Path (Path (Sum A B) (inr b) d) r (normR A B b d r)) refl c p
+def loopR : (A : Type 0) -> (B : Type 0) -> isSet B -> (b : B) -> (q : Path (Sum A B) (inr b) (inr b)) -> Path (Path (Sum A B) (inr b) (inr b)) q refl :=
+  fun (A : Type 0) (B : Type 0) (sB : isSet B) (b : B) (q : Path (Sum A B) (inr b) (inr b)) =>
+    trans (Path (Sum A B) (inr b) (inr b)) q (normR A B b (inr b) q) refl (retrR A B b (inr b) q)
+      (fun (j : I) => fun (i : I) => inr ((sB b b (fun (k : I) => either (fun (a : A) => b) (fun (y : B) => y) (q @ k)) refl @ j) @ i))
+def loopsSum : (A : Type 0) -> (B : Type 0) -> isSet A -> isSet B -> (x : Sum A B) -> (p : Path (Sum A B) x x) -> Path (Path (Sum A B) x x) p refl :=
+  fun (A : Type 0) (B : Type 0) (sA : isSet A) (sB : isSet B) (x : Sum A B) =>
+    elim (fun (y : Sum A B) => (p : Path (Sum A B) y y) -> Path (Path (Sum A B) y y) p refl) (loopL A B sA) (loopR A B sB) x
+def isSetSum : (A : Type 0) -> (B : Type 0) -> isSet A -> isSet B -> isSet (Sum A B) :=
+  fun (A : Type 0) (B : Type 0) (sA : isSet A) (sB : isSet B) => setFromLoops (Sum A B) (loopsSum A B sA sB)
+-- The proof slot outcomeSet (USER ruling S7 Q2): Outcome is a set. The kernel puts the DAO prelude directly after it.
+-- The proof slot outcomeSet: Choice is a set, as a sum of sets.
+def outcomeSet : isSet Outcome := isSetSum Unit Unit isSetUnit isSetUnit
+
+-- The charter law (Q-S6-5 (a), p4). A ratification carries a rule-set id (a
+-- Size). The contract has one compiled rules form, so S6 has two rule sets:
+-- id 0 is the S4 rules at genesis, and id 1 is the S6 rules (the Params
+-- words, the issuer map and the class pass set of examples/restrict.lang).
+-- ruleOf reads id 0 as rule set 0 and each id above 0 as rule set 1. A new
+-- rule kind is a new contract that the token binds (Q-S3-2 (a)).
+def RuleSet : Type 0 := Sum Unit Unit
+def rs0 : RuleSet := inl unit
+def rs1 : RuleSet := inr unit
+def ruleOf : Size -> RuleSet := fun (w : Size) => elim (fun (k : Size) => RuleSet) rs0 (fun (k : Size) (ih : RuleSet) => rs1) w
+def isSetRule : isSet RuleSet := isSetSum Unit Unit isSetUnit isSetUnit
+
+-- The history fold gives the active rule set: genesis gives rs0, and an
+-- adoption gives the rule set of its ratification. A second adoption of the
+-- same id gives the same rule set, so the adoptTwice case is a constant path.
+def active : Charter -> RuleSet :=
+  fun (c : Charter) => fold RuleSet RuleSet
+    rs0
+    (fun (b : RuleSet) (r : RuleSet) => r)
+    (fun (b : RuleSet) (w : Size) => fun (i : I) => ruleOf w)
+    (fun (x : RuleSet) (y : RuleSet) (p : Path RuleSet x y) (q : Path RuleSet x y) => fun (i : I) => fun (j : I) => (isSetRule x y p q @ i) @ j)
+    (fun (b : RuleSet) (w : Size) => ruleOf w)
+    (fun (a : RuleSet) (x : RuleSet) (y : RuleSet) (p : Path RuleSet x y) (q : Path RuleSet x y) => fun (i : I) => fun (j : I) => (isSetRule x y p q @ i) @ j) c
+def rulesV1 : Size := szS sz0
+def c1 : Charter := adopt genesis (ratify genesis rulesV1)
+def c2 : Charter := adopt c1 (ratify c1 rulesV1)
+def activeGenesis : Path RuleSet (active genesis) rs0 := refl
+def activeOne : Path RuleSet (active c1) rs1 := refl
+def activeTwice : Path RuleSet (active c2) rs1 := refl
+def activeBack : Path RuleSet (active (adopt c1 (ratify c1 sz0))) rs0 := refl
+
+-- The yes or no vote (Q-S6-3 (a)): yes (inl unit) takes the new value, and
+-- no (inr unit) keeps the old value. With two members, yes needs the two
+-- votes (a strict majority), so a tie keeps the old value. yn gives a closed
+-- value in each case, so ynComm is refl in each case.
+def yes : Choice := inl unit
+def no : Choice := inr unit
+def yn : Choice -> Choice -> Choice :=
+  fun (x : Choice) (y : Choice) => either (fun (u : Unit) => either (fun (v : Unit) => yes) (fun (v : Unit) => no) y) (fun (u : Unit) => no) x
+def ynComm : (x : Choice) -> (y : Choice) -> Path Choice (yn y x) (yn x y) :=
+  fun (x : Choice) (y : Choice) => elim (fun (z : Choice) => Path Choice (yn y z) (yn z y))
+    (fun (v : Unit) => elim (fun (w : Choice) => Path Choice (yn w (inl v)) (yn (inl v) w)) (fun (u : Unit) => refl) (fun (u : Unit) => refl) y)
+    (fun (v : Unit) => elim (fun (w : Choice) => Path Choice (yn w (inr v)) (yn (inr v) w)) (fun (u : Unit) => refl) (fun (u : Unit) => refl) y) x
+
+-- passRule c: the yes or no rule. A swap of the members does not change it
+-- (ynComm), so passCon is a constitution.
+def passRule : (Member -> Choice) -> Choice := fun (c : Member -> Choice) => yn (c (inl unit)) (c (inr unit))
+def passAct : (g : Group) -> (d : Member -> Choice) -> Path Choice (passRule (act g d)) (passRule d) :=
+  fun (g : Group) (d : Member -> Choice) => elim (fun (h : Group) => Path Choice (passRule (act h d)) (passRule d))
+    (fun (u : Unit) => refl) (fun (u : Unit) => ynComm (d (inl unit)) (d (inr unit))) g
+def passCon : Constitution := pack passRule passAct
+
+-- The menu slot: the vote rule does not change with the outcome, so each
+-- outcome selects passCon.
+def menu : Outcome -> Constitution := fun (o : Outcome) => passCon
+
+-- The three orbits of two members: two yes, a tie (yes and no, or no and
+-- yes) and two no.
+def allYes : Member -> Choice := fun (m : Member) => yes
+def tie : Member -> Choice := fun (m : Member) => m
+def allNo : Member -> Choice := fun (m : Member) => no
+def passYes : Path Outcome (aggregate passCon (orbitProj allYes)) yes := refl
+def passTie : Path Outcome (aggregate passCon (orbitProj tie)) no := refl
+def passNo : Path Outcome (aggregate passCon (orbitProj allNo)) no := refl
+
+-- The regimes (examples/regimes.lang): AI none, AD one (Arrow-Debreu) and SI
+-- more than one self-constituting outcome. isFix M t o is inl unit when the
+-- entry of M at o, aggregated at t, gives o.
+def Regime : Type 0 := Sum Unit (Sum Unit Unit)
+def AI : Regime := inl unit
+def AD : Regime := inr (inl unit)
+def SI : Regime := inr (inr unit)
+def same : Choice -> Choice -> Choice :=
+  fun (x : Choice) (y : Choice) => either (fun (u : Unit) => y) (fun (u : Unit) => flip y) x
+def isFix : (Outcome -> Constitution) -> Tally -> Outcome -> Choice :=
+  fun (M : Outcome -> Constitution) (t : Tally) (o : Outcome) => same (aggregate (M o) t) o
+def bumpR : Choice -> Regime -> Regime :=
+  fun (c : Choice) (r : Regime) => either (fun (u : Unit) => either (fun (v : Unit) => AD) (fun (s : Sum Unit Unit) => SI) r) (fun (u : Unit) => r) c
+def regimeOf : (Outcome -> Constitution) -> Tally -> Regime :=
+  fun (M : Outcome -> Constitution) (t : Tally) => bumpR (isFix M t yes) (bumpR (isFix M t no) AI)
+
+-- Q-S6-6 (a): at each of the three orbits the yes or no menu has one
+-- self-constituting outcome (AD), because a tie keeps the old value. The
+-- echo menu, where each outcome selects the constant rule at itself, has two
+-- (SI), so the count is not the same for each menu.
+def constCon : Outcome -> Constitution := fun (o : Outcome) => pack (fun (c : Config) => o) (fun (g : Group) (c : Config) => refl)
+def echoMenu : Outcome -> Constitution := fun (o : Outcome) => constCon o
+def ynYes : Path Regime (regimeOf menu (orbitProj allYes)) AD := refl
+def ynTie : Path Regime (regimeOf menu (orbitProj tie)) AD := refl
+def ynNo : Path Regime (regimeOf menu (orbitProj allNo)) AD := refl
+def echoTie : Path Regime (regimeOf echoMenu (orbitProj tie)) SI := refl

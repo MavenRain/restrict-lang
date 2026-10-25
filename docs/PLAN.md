@@ -75,6 +75,32 @@ Builder calls (section 10 gives each one; Q1 rules O3):
 - Tests are guest-language files plus `langc run` scripts. The kit gate
   scripts stay. We add no new harness.
 
+USER rulings (S6, 2026-10-25), verbatim:
+
+> Rulings: Take all recommendations. Follow
+> ~/Documents/restrict-lang-work/S6-build-PROMPT.md. After, if necessary,
+> give next session prompt.
+
+So each question of section 15 takes its recommendation (a):
+
+- Q-S6-1 (a): S6 s2 ports intent-lang 3df9d96 (its S9) as is: the tally
+  and ballot examples, `test/ballottool.c`, `tally-leak.lang`, the eval
+  rows, the ballot precompile steps and the Makefile rows. No src change.
+- Q-S6-2 (a): four parameters, each one state word: `pCapN`, `pCapCN`
+  (U256), `pLockD` and `pRegD` (Nat). `init` holds the S4 and S5 values.
+- Q-S6-3 (a): the DAO votes yes or no on one proposal. A fail or a tie
+  keeps the old value.
+- Q-S6-4 (a): the issuer list is the state map `issuers : Map Addr Flag`.
+- Q-S6-5 (a): an amendment ratifies a rule-set id in the `Charter`, and
+  the class pass set of the country rule becomes a state map.
+- Q-S6-6 (a): each vote kind is Arrow-Debreu. Guest `refl` rows count one
+  self-constituting outcome for the yes or no menu.
+- Q-S6-7 (a): the ballot ring signs in the context word hash(selfWord,
+  pid) through `zkVerifyAt`, and the ballot ctx uses pid in place of poll 0.
+- Q-S6-8 (a): S6 s2 builds the port, the `Params` words, the issuer map,
+  the amendment law, the setters and the regime rows. The entries
+  `propose`, `ballot`, `openTally` and `enact` are S7.
+
 ## 2. The reading of R1
 
 R1 has the same words as the type-former ruling of intent-lang. intent-lang
@@ -150,6 +176,37 @@ of 3.4, the token binding and the rule set itself are DAO decisions. No
 other key can change them. A new rule set is a charter amendment: the DAO
 changes the rules by its own vote (4.4).
 
+S6 notes (Q-S6-1..8 (a), section 15):
+
+- Q-S6-1 (a): S6 ports intent-lang 3df9d96 (its S9) as is:
+  `examples/tally.lang` (the guest law of the encrypted tally),
+  `examples/ballot.lang` (the kit ballot views), `test/ballottool.c`,
+  `test/check/tally-leak.lang` (`REFUSE_LAW`), 15 eval rows (tally 6, ballot
+  9), 9 precompile steps and the Makefile rows of `ballottool`. `Choice`
+  stays yes or no. The S8 rows of intent-lang are not ported.
+- Q-S6-7 (a): the ballot ring signs in the context word `pctx =
+  hash(selfWord, pid)` through `zkVerifyAt` (`pid` is 1u, `self` is
+  0x..c0). The guest `zkVerify` keeps poll 0. `test/ballottool.c` signs
+  with `blsag_sign_at` and has a new silent row "ballot in a second
+  proposal": a ballot of pid 1 does not verify for pid 2 (the ctx gives
+  `SIG_BAD_SLOT`, and the context word gives `BLSAG_REJECT`). 38 words
+  change in `examples/ballot.lang` and in `test/precompile.sh`: the key
+  images, the context words and the slot and sum proof words. The
+  ciphertexts and the ballot digest do not change. The new words are in
+  ~/Documents/restrict-lang-work/S6-ballot-words.txt (`build/ballottool
+  words`).
+- `examples/charter.lang` (guest mode, Q-S6-5 (a)) has the slots of
+  `examples/dao.lang`, but `act` swaps the two members. Thus the yes or no
+  rule `yn` (`ynComm`: it is commutative) gives a constitution `passCon`.
+  The charter law: `RuleSet` (`rs0` is the S4 rule set, `rs1` is the S6
+  rule set), `ruleOf`, and `active : Charter -> RuleSet`, the fold of the
+  history to the active id. Rows: `activeGenesis`, `activeOne`,
+  `activeTwice` and `activeBack`; `passYes`, `passTie` (a tie keeps the old
+  value) and `passNo`. `examples/dao.lang` does not change, because
+  writertool compiles it.
+- Q-S6-8 (a): the entries `propose`, `ballot`, `openTally` and `enact`, and
+  the encrypted tally in the state, are S7 (the contract writer).
+
 ### 3.2 Part T: the token moves
 
 ERC-3643 calls the compliance contract on each move of the token (EIP,
@@ -184,7 +241,8 @@ S3 (DONE, 2026-10-24) is `examples/mirror.lang` and the run script
 - A hook needs a bound token, so a call from the zero address reverts
   before `bindToken`.
 - S3 cannot unbind: `unbindToken t` needs `decided s` to differ from `t`,
-  and no S3 entry changes `decided` (Q-S3-2 (a)). S6 changes it.
+  and no S3 entry changes `decided` (Q-S3-2 (a)). S6 has no setter for
+  it (Q-S6-8 (a)): the S7 entry `enact` changes it.
 
 ### 3.3 Part R: rules as types
 
@@ -257,6 +315,26 @@ to get the size, then into the arena). It lexes the text with
   `test/fronttool.c` checks all helper-name collisions, exported decisions,
   qualified input names, the false branch and the guest boundary.
 
+S6 notes (Q-S6-2 (a), Q-S6-5 (a)):
+
+- The rule tests read the Part G words of the state, not constants:
+  `holderCap` reads `pCapN s`, `classCap` reads `pCapCN s`, `stepM` reads
+  `pLockD s`, and the country rule reads the class pass set through `inSet
+  : State -> U256 -> Flag` (`mapGet (passCls s) k`; `countryIn`, `l2Rule`
+  and `l2S1Rule` pass the state). The defs `capN`, `capCN` and `lockD` are
+  deleted. `capC` stays, because it is a class code. `init` holds the S4
+  values (2u, 3u, 86400 s and the pass of class 0), so the S4 rows do not
+  change.
+- The rules form does not change (Q-S6-5 (a)). An amendment changes the
+  Part G words. A new rule kind is a new contract.
+- `withGov` writes the six Part G words. The setters `setCapN`,
+  `setCapCN`, `setLockD` and `setRegD` (`setParam`, one for each word),
+  `setIssuer` and `setPass` change one word each.
+- Rows: `gCapN`, `gCapCN` and `gLockD`, each with its `Keeps` row (the
+  setter changes no other word); `capRaised` (a higher cap flips
+  `capNewHolderView`), `capLowered`, `classCapRaised` and `lockNew`;
+  `passOpen`, `passOpenView` and `passClosed`.
+
 ### 3.4 Part C: identity claims as ZK credentials
 
 In ERC-3643 a wallet maps to an ONCHAINID identity. Trusted issuers sign
@@ -304,6 +382,18 @@ S5 notes (Q-S5-1..7 (a), section 14):
 - `regOk` (the checks of `register`) takes the signature as a list, so the
   `refl` rows build it with `zkSignAt`. A `langc --kit eval` of `sigD` and
   `sigE` shows that their last two words are the key image `img0`.
+
+S6 notes (Q-S6-2 (a), Q-S6-4 (a)):
+
+- The issuer list is the state map `issuers : Map Addr Flag`. `issue`
+  reads `mapGet (issuers s) (caller env)`. `init` holds the S5 issuer
+  `issuer0` (0x..e1). The def `issuer` is deleted.
+- `regSet` reads the registration length `pRegD s`. The def `regD` is
+  deleted.
+- Rows: `gRegD` and `gRegDKeeps`; `r3` with `regNewEnd`, `regNewLive` and
+  `regNewGone` (a new length gives a new end); `issueRemoved` (a removed
+  issuer cannot issue), `issueAdded` and `issueKeysStay` (O10: the ring
+  keys stay when their issuer goes).
 
 ## 4. Readings of the design on Cubical TT
 
@@ -383,11 +473,17 @@ of the peaks is strategy-proof (Black, 1948). The ballot is one-hot over the
 ladder, the counts open, and the median comes from the counts.
 
 orbit-lang `design/DESIGN.md:39` names three UAT regimes. Which regime holds
-each kind of vote is O13 (read MavenRain/self-referential-dao).
+each kind of vote is O13 (read MavenRain/self-referential-dao). S6 (Q-S6-6
+(a)): each vote kind is Arrow-Debreu (one self-constituting outcome). The
+yes or no vote has one outcome, because a tie keeps the old value.
+`examples/charter.lang` counts the outcomes of the yes or no menu with
+`isFix`, `bumpR` and `regimeOf` (the form of `examples/regimes.lang`):
+the rows `ynYes`, `ynTie` and `ynNo` give AD, and the contrast row
+`echoTie` gives SI.
 
-The ballots are encrypted (`Enc`, one-hot), and only the tally opens. intent-lang
-has not built its encrypted ballots yet (its S9). resolve-lang plans them
-for its S6. restrict-lang needs them in its S6 (O9).
+The ballots are encrypted (`Enc`, one-hot), and only the tally opens. S6 ports
+the encrypted ballots of intent-lang S9 (Q-S6-1 (a), O9). Each proposal
+has its own context word (Q-S6-7 (a), O15).
 
 ### 4.5 The chain fragment
 
@@ -528,8 +624,8 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S3 | Part T: `Move`, the mirror state, `step`, the hooks with L9, the binding; L6 | DONE (2026-10-24): `examples/mirror.lang` (16 L6 paths by `refl`) and `test/run/mirror.script` (17 rows, L9); the kernel does not change. `make -B check` EXIT 0. Two counters change from the S2 log: examples 49 -> 50 (`mirror.lang` in `examples/kit.txt`) and runs 5 -> 6 (`test/run/mirror.script`); all other lines are the S2 lines; 0 failures. Mutants: 7 (L6 x5, L9 x2), 7 KILLED; the gate after the restore is byte for byte the S3 gate log |
 | S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | DONE (2026-10-24): the kit form `rules` in five src/front files (section 3.3, S4 notes); `examples/restrict.lang` (`mirror.lang` with Part R: four rule tests, one form, `Broken`; 23 more `refl` paths: L1 x5, rules-cap x13, rules-lock x5), `test/check/rules-no-dec.lang` (`TYPE_MISMATCH`, O5) and `test/run/restrict.script` (14 rows). `make -B check` EXIT 0. Three counters change from the S3 log: examples 50 -> 51 (`restrict.lang` in `examples/kit.txt`), check refusals 186 -> 187 (`rules-no-dec.lang`) and runs 6 -> 7 (`test/run/restrict.script`); all other lines are the S3 lines; 0 failures. Mutants: 7 (L1, L3 x2, L4, O5, `Broken`, `RULES_HELPERS 9u`), 6 KILLED, 1 SURVIVED (an equivalent mutant, section 3.3 S4 notes); the gate after the restore is byte for byte the S4 gate log |
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | DONE (2026-10-25): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt` (Q-S5-1 (a); the key image seed is hash(hash(P.x, P.y), w), and the old ops keep the same bytes) with the blsagtool context rows; `examples/restrict.lang` with Part C (section 3.4, S5 notes; 26 more `refl` paths: L2, L7, L8, the issue, register and class rows) and `test/run/restrict.script` (9 more rows). `make -B check` EXIT 0. No counter changes: the log is byte for byte the S5 step0 log, because S5 adds no example file and no run script, and the blsagtool context rows print no new line; 0 failures. Mutants: 6 (L2, L7, L8, the key image context, expiry, the class rule), 6 KILLED; the gate stops at the first failed step, so the second legs ran alone: M2 and M5 change run rows 20 and 21 (on the example without its `refl` rows, whose run output is `restrict.out`), and M4 fails three blsagtool context rows. The gate after the restore is byte for byte the S5 gate log |
-| S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | NEXT |
-| S7 | the contract writer: the ABI of section 7, the events, chain rows on the test token (Q13) | |
+| S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S5 gate log (HEAD daa2cae, with the USER bLSAG nonce fix); probes p1 to p6 (section 15); docs only; the USER ruled Q-S6-1 to Q-S6-8 (a). s2 DONE (2026-10-25): the port of intent-lang 3df9d96 (Q-S6-1 (a)) with the ballot context hash(selfWord, pid) (Q-S6-7 (a)); in `examples/restrict.lang` the `Params` words, the issuer map, the class pass set and the setters (section 3.1, S6 notes); `examples/charter.lang` with the charter law and the regime rows (section 4.4). `make -B check` EXIT 0. The changes from the step0 log: examples 51 -> 54 (`tally.lang`, `ballot.lang` and `charter.lang`; `charter.lang` is a third new example, so +3, not +2 as Q-S6-1 said), check refusals 187 -> 188 (`tally-leak.lang`), evals 188 -> 203 (tally 6, ballot 9), precompile steps 143 -> 152 (the ballot steps), and three new lines: the `ballottool` build, its check-clang row and `ballot regressions: passed`; the run counts do not change; 0 failures. The base is the S6 s1 step0 log (`restrict-lang-S6-step0-gate.log`): the s2 step0 log has `precompile: 152 steps checked` at line 76, not 143, because the `test/precompile.sh` hunk went in while that gate ran. Mutants: 8 (holderCap reads 2u, `issue` ignores the issuer map, `setCapN` writes `pCapCN`, `tallyEnc` drops the head ballot, a tie passes in `decide`, the ballot ctx drops pid, `active` keeps the old rule set, `yn` passes on a tie), 8 KILLED; the tie and ctx mutants pass their checks and fail the eval rows `tally kept` and `ballot sigGood`. The gate after the restore is byte for byte the S6 gate log |
+| S7 | the contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), chain rows on the test token (Q13) | NEXT |
 | S8 | mutants, SPEC, VALIDATION, close | |
 
 ## 10. Open items
@@ -563,7 +659,9 @@ Each item is RULED (S1, 2026-10-24) or kept as the builder call.
   it gives the form; the other ports it. Kept: Q4 (a) needs the key image.
   The hash to curve is S5 work.
 - O9 encrypted ballots: intent-lang S9, resolve-lang S6 and restrict-lang S6
-  need the same form. One builds it; the others port it. Kept.
+  need the same form. One builds it; the others port it. CLOSED (S6,
+  Q-S6-1 (a)): restrict-lang ports the intent-lang S9 form (3.1, S6
+  notes).
 - O10 rings expire. A registration ends with its ring, and a holder
   registers again with a new ring. Revocation is a new ring without the key.
   A change of the rule set that changes the classes ends every registration
@@ -575,10 +673,13 @@ Each item is RULED (S1, 2026-10-24) or kept as the builder call.
   credential for each investor and class. Kept.
 - O12 `investorCountry(address)` is not served: the country is hidden (Q5
   (a)). A token or a tool that calls it fails. Kept: Q5 (a).
-- O13 the UAT regime of each vote kind (4.4). Kept: open until S6.
+- O13 the UAT regime of each vote kind (4.4). CLOSED (S6, Q-S6-6 (a)):
+  each vote kind is Arrow-Debreu. The rows are in `examples/charter.lang`.
 - O14 ecrecover comes with the port and has no use. Kept: S2 keeps it.
 - O15 the guest poll id is fixed to 0 (H:310). Each DAO proposal needs a
-  poll id: a change of the signature. Kept: S6 work.
+  poll id: a change of the signature. CLOSED (S6, Q-S6-7 (a)): no
+  signature change. The ballot context word is hash(selfWord, pid)
+  through `zkVerifyAt`. The guest `zkVerify` keeps poll 0.
 - O16 the transfer agent bullet: the token stays the record of ownership.
   The compliance contract keeps a mirror only (3.2). Kept.
 - O17 the class map `cls` is written by hand in `examples/restrict.lang`
@@ -888,3 +989,143 @@ of `restrict.script`, and no new example file (Q-S5-7 (a)).
 USER rulings (S5, 2026-10-24): Q-S5-1 "(a) New *At ops"; Q-S5-2..7 "All
 (a)". Thus each question of S5 is (a). Q-S5-1 (a) changes the kernel: the
 new ops `zkHpAt`, `zkSignAt` and `zkVerifyAt`. The old ops do not change.
+
+## 15. Questions of S6
+
+S6 s1 (2026-10-25, claude2, docs only) surveys the DAO over the rules:
+`Params` for each parameter, the issuer list, the rule-set amendment and
+the encrypted ballots (O9). The probes are in
+~/Documents/restrict-lang-work/S6-probes (the results are in `probes.out`).
+
+STEP 0 facts:
+
+- HEAD is daa2cae, a USER commit on b7841d2 ("Add S5 context-bound
+  credential registration"). Its tree is 0ba52b8d, not the staged S5 tree
+  610d6fb3, because the USER added a review fix. `git diff --stat 610d6fb3
+  HEAD`: `src/front/blsag.c` (11 lines), `test/blsagtool.c` (8) and
+  `test/run/restrict.script` (4); 16 insertions, 7 deletions. S6 takes
+  HEAD as the S5 base.
+- The fix. In S5, `sign` used nonce role 0 (alpha) and role 1 (the decoy
+  responses) in the legacy mode (`w == NULL`) and in the context mode. Two
+  signatures with the same key, ring, poll and choice, one in each mode,
+  then had the same alpha and two different challenges, and the two
+  responses give the private key. The context mode now uses roles 2 and 3.
+  The legacy bytes do not change. A new blsagtool row signs in the two
+  modes and prints "FAIL bLSAG signing modes disclose private key" if the
+  key comes back. The context signatures change, so the two `register`
+  rows of `test/run/restrict.script` (0x99 and 0x88) have new `c1 s1 s2`
+  words. The key image words do not change, because the key image does not
+  use the nonce. resolve-lang O10 shares the context ops: a port takes the
+  fixed roles.
+- `git status --porcelain`: only `.kanon-exec/`, `.kanon-replies/` and
+  `.kanon-wait/` (not ours).
+- Gate: ~/Documents/restrict-lang-S6-step0-gate.log (serial `make -B
+  check`): EXIT 0, 110 lines, byte for byte the S5 gate log. The USER fix
+  changes no gate line. The new blsagtool row prints nothing when it
+  passes, and the run output of the two new `register` rows does not
+  change, because `Registered` shows only the class and the key image.
+
+Probe facts (`build/langc --kit check`, and the plain `check` for the
+guest files):
+
+- p1: intent-lang 3df9d96 `examples/tally.lang` as is: `ok` in the plain
+  mode and in the kit mode. p1b: its `examples/ballot.lang` as is: `ok` in
+  the kit mode (the plain mode gives REFUSE_KIT, as for each kit file). The
+  restrict-lang kernel takes the S9 form with no change.
+- S9 has no src change: `git diff --stat c6636f1 3df9d96 -- src` is empty.
+  The src diff from the port base (`ef5abe8 3df9d96 -- src`: `check.c` 40
+  lines, `contract.c` 2) is intent-lang S8 (c6636f1) only: `Env` gets
+  `block : U256`, and a run call is `NOW BLOCK CALLER NAME ARGS...`. S6
+  does not need it.
+- p2: `Params` as state words (`pCapN : U256`, `pLockD : Nat`, `pRegD :
+  Nat`). `holderCap` reads `pCapN s`, the rules form takes it, and
+  `canTransfer` follows `setCap` (3 `refl` rows): kit `ok`. p2b: `Params :=
+  Prod U256 Nat` as one state field: kit `ok`.
+- p3: `member (caller e) issuers` over `List Addr`: kit `NAME_UNKNOWN` (the
+  kit has no `member`); plain REFUSE_CELL (`List` is not a guest name).
+  p3b: the issuer list as the state map `issuers : Map Addr Flag`. `issue`
+  reads `mapGet (issuers s) (caller env)`, and `mapSet` adds or removes an
+  issuer (4 `refl` rows): kit `ok`.
+- p4: a rule-set amendment as `adopt c (ratify c r)`, with the rule set id
+  `r : Size` (`ratifyRule`, D:223): `ok` in the plain mode and in the kit
+  mode. A ratification names a rule set by a `Size`, not by its rules.
+- p5 (O15): `zkVerifyAt r (hash selfWord pid) msg sig`, the poll id `pid`
+  of a proposal in the context word of S5: kit `ok`. The key image seed is
+  hash(hash(P.x, P.y), w) (Q-S5-1 (a)), so each key has one key image for
+  each contract and proposal. The signature of the op does not change.
+- p6 (O13, Q10 (b)): the median of a three-rung ladder from the opened
+  counts (Black). `median` compares twice the running count with the total
+  by `leB`; 3 `refl` rows (the counts 1/1/1 give mid, 2/0/1 low, 0/0/3
+  high): plain `ok`.
+- The UAT regimes (orbit-lang `design/DESIGN.md:39`,
+  `examples/regimes.lang`): the regime of a menu at a tally counts its
+  self-constituting outcomes. Arrow-Impossibility has none, Arrow-Debreu
+  has one, Schelling-Ising has more than one.
+
+Questions (the builder default is (a) in each):
+
+- Q-S6-1 the port route (O9). (a) Port intent-lang 3df9d96 (its S9) as is,
+  the same route as resolve-lang Q-S6-2 (a): `examples/tally.lang` (guest),
+  `examples/ballot.lang` (kit), `test/ballottool.c`,
+  `test/check/tally-leak.lang`, the tally and ballot eval rows, the ballot
+  precompile steps and the Makefile rows of `ballottool`. `Choice` stays
+  yes or no. The poll id comes from Q-S6-7. No src change (p1). The S8
+  `Env.block` and the S9 rows of `examples/intent.lang` (Market, govern;
+  they need S8) are not ported. Expected counters: examples +2, check
+  refusals +1 (tally-leak REFUSE_LAW), evals +15 (tally 6, ballot 9),
+  precompile steps +9, and the new line `ballot regressions: passed`.
+  (b) Port `examples/tally.lang` and `tally-leak.lang` only (the guest
+  law), and leave the kit ballot views and `ballottool` to S7. Fewer gate
+  lines change, but S6 has no chain form of the ballot. RULED: (a).
+- Q-S6-2 the `Params` set. (a) Four parameters, each one state word (p2):
+  `capN` (U256), `capCN` (U256), `lockD` (Nat) and `regD` (Nat). The rule
+  tests, `mint` and `regSet` read them from the state. `init` holds the S4
+  and S5 values, so the values in the S4 and S5 `refl` rows and run rows
+  stay. `capC` is a class code, not a parameter. The token binding
+  (`decided`, Q-S3-2 (a)) is a DAO decision too. (b) One product field
+  `Params` (p2b) that one decision sets as a whole. (b) has fewer polls,
+  but each poll gives all four values. RULED: (a).
+- Q-S6-3 the vote on a `Params` value (4.4). (a) A yes or no on one
+  proposal (Q10 (a)). The proposal names one parameter and its new value.
+  `decide` of intent-lang takes the new value on a pass, and a fail or a
+  tie keeps the old value. (b) The ladder median of p6 for the numeric
+  parameters (Q10 (b), not ruled in S1). (b) needs a ladder for each
+  parameter and a one-hot ballot over the ladder. RULED: (a).
+- Q-S6-4 the issuer list. (a) The state map `issuers : Map Addr Flag`
+  (p3b). `issue` reads `mapGet (issuers s) (caller env)`. A DAO decision
+  adds or removes one issuer (a proposal is an address and a flag). `init`
+  holds the S5 issuer 0x..e1, so the S5 rows stay. A removed issuer cannot
+  issue, but its keys stay in the rings until a new ring (O10). (b) A list
+  that is fixed at compile time, with a new kit op `member` (p3:
+  NAME_UNKNOWN). That is a kernel change, and the list changes only with a
+  new contract. RULED: (a).
+- Q-S6-5 the rule-set amendment (3.1, 4.4). (a) An amendment ratifies a
+  rule-set id in the `Charter` (p4), and the history fold gives the active
+  id. The contract has one compiled rules form, so an amendment changes
+  the `Params` (Q-S6-2) and the class pass set of the country rule (`inSet`
+  becomes a state map `Map U256 Flag`). A new rule kind is a new contract:
+  the DAO decides its address, and the token binds it (`decided`, Q-S3-2).
+  (b) The rules form takes a menu of rule sets and gives one `canTransfer`
+  that selects by the active id. That is a kernel change to `check_rules`
+  (section 3.3, S4 notes). RULED: (a).
+- Q-S6-6 O13, the UAT regime of each vote kind. (a) Each vote kind is
+  Arrow-Debreu (one self-constituting outcome). The yes or no vote has one
+  outcome, because a tie keeps the old value (May, 4.4). The ladder (if
+  Q-S6-3 (b)) has one outcome with the lower median (Black). S6 s2 adds
+  guest `refl` rows in the form of `examples/regimes.lang` that count one
+  outcome for the yes or no menu. (b) Record the regime in the docs only,
+  with no rows. RULED: (a).
+- Q-S6-7 O15, the poll id of each proposal. (a) No signature change. The
+  ballot context word is `hash(selfWord, pid)` through `zkVerifyAt` (p5),
+  and the ballot ctx of `examples/ballot.lang` uses `pid` in place of poll
+  0 (as resolve-lang Q-S6-2 (a) uses the dispute id). The guest `zkVerify`
+  keeps poll 0. (b) A poll argument for `zkVerify` and `zkSign`. That is a
+  kernel change, and the rows of the old ops change. RULED: (a).
+- Q-S6-8 the scope of S6 s2 (as resolve-lang Q-S6-5). (a) S6 s2 builds the
+  port of Q-S6-1, the `Params` words and the rule tests that read them,
+  the issuer map, the charter amendment law, the state setters
+  (`setParam`, `setIssuer`) with `refl` rows, and the regime rows. The
+  entries `propose`, `ballot` (the encrypted choice), `openTally` and
+  `enact`, and the encrypted tally in the state, are S7 (the contract
+  writer). (b) S6 s2 also adds these entries and their run rows to
+  `examples/restrict.lang` and `test/run/restrict.script`. RULED: (a).

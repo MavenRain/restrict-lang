@@ -58,6 +58,19 @@
   L8, the class rule of `register`). `test/run/restrict.script` shows
   `issue`, `register`, a second `register` with a used key image (revert)
   and the end of a registration.
+- S6 (the DAO over the rules, Q-S6-1..8 (a)): the port of intent-lang S9
+  (`examples/tally.lang`, `examples/ballot.lang`, `test/ballottool.c`,
+  `test/check/tally-leak.lang`, 15 eval rows and 9 precompile steps). The
+  ballot ring signs in the context word hash(selfWord, pid) (Q-S6-7 (a)),
+  and `test/ballottool.c` has the row "ballot in a second proposal".
+  `examples/restrict.lang` adds Part G: the state words `pCapN`, `pCapCN`,
+  `pLockD` and `pRegD`, the issuer map `issuers` and the class pass set
+  `passCls`, which the rule tests, `issue` and `regSet` read; the setters
+  and 21 more `refl` paths. `examples/charter.lang` (guest mode) adds the
+  charter law (`active`), the yes or no rule of the swap group and the
+  regime rows (AD, and the contrast row SI). In `test/run/restrict.out`,
+  only the last line changes: the state shows the six Part G words. No
+  src change.
 
 ## Remaining M0 work
 
