@@ -625,7 +625,7 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | DONE (2026-10-24): the kit form `rules` in five src/front files (section 3.3, S4 notes); `examples/restrict.lang` (`mirror.lang` with Part R: four rule tests, one form, `Broken`; 23 more `refl` paths: L1 x5, rules-cap x13, rules-lock x5), `test/check/rules-no-dec.lang` (`TYPE_MISMATCH`, O5) and `test/run/restrict.script` (14 rows). `make -B check` EXIT 0. Three counters change from the S3 log: examples 50 -> 51 (`restrict.lang` in `examples/kit.txt`), check refusals 186 -> 187 (`rules-no-dec.lang`) and runs 6 -> 7 (`test/run/restrict.script`); all other lines are the S3 lines; 0 failures. Mutants: 7 (L1, L3 x2, L4, O5, `Broken`, `RULES_HELPERS 9u`), 6 KILLED, 1 SURVIVED (an equivalent mutant, section 3.3 S4 notes); the gate after the restore is byte for byte the S4 gate log |
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | DONE (2026-10-25): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt` (Q-S5-1 (a); the key image seed is hash(hash(P.x, P.y), w), and the old ops keep the same bytes) with the blsagtool context rows; `examples/restrict.lang` with Part C (section 3.4, S5 notes; 26 more `refl` paths: L2, L7, L8, the issue, register and class rows) and `test/run/restrict.script` (9 more rows). `make -B check` EXIT 0. No counter changes: the log is byte for byte the S5 step0 log, because S5 adds no example file and no run script, and the blsagtool context rows print no new line; 0 failures. Mutants: 6 (L2, L7, L8, the key image context, expiry, the class rule), 6 KILLED; the gate stops at the first failed step, so the second legs ran alone: M2 and M5 change run rows 20 and 21 (on the example without its `refl` rows, whose run output is `restrict.out`), and M4 fails three blsagtool context rows. The gate after the restore is byte for byte the S5 gate log |
 | S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S5 gate log (HEAD daa2cae, with the USER bLSAG nonce fix); probes p1 to p6 (section 15); docs only; the USER ruled Q-S6-1 to Q-S6-8 (a). s2 DONE (2026-10-25): the port of intent-lang 3df9d96 (Q-S6-1 (a)) with the ballot context hash(selfWord, pid) (Q-S6-7 (a)); in `examples/restrict.lang` the `Params` words, the issuer map, the class pass set and the setters (section 3.1, S6 notes); `examples/charter.lang` with the charter law and the regime rows (section 4.4). `make -B check` EXIT 0. The changes from the step0 log: examples 51 -> 54 (`tally.lang`, `ballot.lang` and `charter.lang`; `charter.lang` is a third new example, so +3, not +2 as Q-S6-1 said), check refusals 187 -> 188 (`tally-leak.lang`), evals 188 -> 203 (tally 6, ballot 9), precompile steps 143 -> 152 (the ballot steps), and three new lines: the `ballottool` build, its check-clang row and `ballot regressions: passed`; the run counts do not change; 0 failures. The base is the S6 s1 step0 log (`restrict-lang-S6-step0-gate.log`): the s2 step0 log has `precompile: 152 steps checked` at line 76, not 143, because the `test/precompile.sh` hunk went in while that gate ran. Mutants: 8 (holderCap reads 2u, `issue` ignores the issuer map, `setCapN` writes `pCapCN`, `tallyEnc` drops the head ballot, a tie passes in `decide`, the ballot ctx drops pid, `active` keeps the old rule set, `yn` passes on a tie), 8 KILLED; the tie and ctx mutants pass their checks and fail the eval rows `tally kept` and `ballot sigGood`. The gate after the restore is byte for byte the S6 gate log |
-| S7 | the contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), chain rows on the test token (Q13) | NEXT |
+| S7 | the contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), chain rows on the test token (Q13) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S6 gate log (HEAD 864849a, the USER S6 commit, with no fix); probes p1 to p7 (section 16): the writer refuses the kit file, the kit build refuses `either` (`canTransfer`, `step`) and `zkVerifyAt` over a state ring or a run-time context word; Q-S7-1 to Q-S7-9 OPEN; docs only. s2 NEXT |
 | S8 | mutants, SPEC, VALIDATION, close | |
 
 ## 10. Open items
@@ -1129,3 +1129,152 @@ Questions (the builder default is (a) in each):
   `enact`, and the encrypted tally in the state, are S7 (the contract
   writer). (b) S6 s2 also adds these entries and their run rows to
   `examples/restrict.lang` and `test/run/restrict.script`. RULED: (a).
+
+## 16. Questions of S7
+
+S7 s1 (2026-10-25, claude2, docs only) surveys the contract writer, the
+kit build of `examples/restrict.lang` and the DAO entries of Q-S6-8 (a).
+The probes are in ~/Documents/restrict-lang-work/S7-probes (`run.sh`,
+`run2.sh`, `run3.sh`; the results are in `probes.out`). Each probe runs on
+a scratch tree from `git archive HEAD`, so the repo does not change.
+
+STEP 0 facts:
+
+- HEAD is 864849a, the USER S6 commit. Its tree is c0d9e088, the staged
+  S6 tree, so the USER added no fix.
+- `git status --porcelain`: only `.kanon-exec/`, `.kanon-replies/` and
+  `.kanon-wait/` (not ours).
+- Gate: ~/Documents/restrict-lang-S7-step0-gate.log (serial `make -B
+  check`): EXIT 0, 115 lines, byte for byte the S6 gate log.
+
+Sibling facts:
+
+- intent-lang S10 (79e1898) writes its kit contract `examples/daokit.lang`
+  by hand from the `ballottool dao` constants. Its `writer.c` does not
+  change. The cast is `castSig`, `castSlot` and `castSeal` (43 words, at
+  most 22 words in one call, O39). The tally has 8 words. `enact` opens
+  slot 0 with the quorum {1, 2}. The runtime is 16702 bytes.
+- resolve-lang S7 s1 (Q-S7-1 to Q-S7-8 OPEN) takes the same route (its
+  Q-S7-2 (a)). Its K4c lowers `zkVerify` only over a closed ring (a state
+  ring gives REFUSE_LOWER, its P2). One verifier is about 3.5 kB. The kit
+  has no `u256Mul` and no `u256Div`. The kit `Env` has `now` and `caller`
+  only, and no contract address (its Q-S7-6 (a): CHAINID and ADDRESS). It
+  plans three build sessions (its Q-S7-4).
+
+Probe facts (`build/langc`):
+
+- p1a: `langc contract examples/restrict.lang --start 0` gives exit 1,
+  `REFUSE_KIT: Move: Addr is a kit item outside the base span`. The writer
+  runs in the plain mode only (`--kit contract` is USAGE in
+  `test/gate.sh`). `src/front/writer.c` is the DAO writer of orbit-lang S9
+  B1. It also needs the prelude `Member`, `Choice`, `Outcome`, `outcomeSet`
+  and `menu` (REFUSE_CONTRACT), and it cannot take the 17-field state or
+  the maps.
+- p1b: `--kit check` gives `ok`. p1c: `--kit build` gives `REFUSE_LOWER:
+  canTransfer: K4c does not lower either at a word position`. The rules
+  form makes `canTransfer` (it is not a def of the file; `Dec` is a Sum).
+  The Move eliminations of `step`, `moveFrom` and `moveTo` (lines 98, 100,
+  123, 125) are `either` too. With the 86 `refl` defs removed (179 -> 93
+  defs, the check is `ok`), the first refusal is the same. `abi` gives the
+  same refusal, so the kit selectors are not printed yet.
+- p7 (`run3.sh`): the S7-probes copy of the file without the `either` sites
+  (`step`, `moveFrom` and `moveTo` are stubs, the rules form is removed,
+  and `canTransfer` in `transferred` is `flagYes`). The build files are hex
+  text, so the runtime is half the characters.
+  - A, the state ring `ring s c` (line 237): `REFUSE_LOWER: register: K4c
+    does not lower zkVerifyAt at a word position`. Without `register`, the
+    build is `ok` with 1433 runtime bytes. The hooks lower with the stub
+    `step`, so `inl` and `inr` for a Move are not a refusal.
+  - B, a closed ring of two literal points with the context `selfWord`:
+    the build is `ok` with 3510 runtime bytes. `register` and its verifier
+    add about 2.1 kB.
+  - C, the closed ring of B with a run-time context word (`addrToU256
+    (caller e)`): the same refusal as A.
+  - The cause (`src/front/eval.c`, `zk_verify` and `zk_unroll`): the
+    evaluator unrolls the verifier only when the ring points are closed
+    and, for `zkVerifyAt`, the context word is closed (line 1726). The
+    build computes the H_i table (H_p of each ring point at the context
+    word). An open ring or an open context word stays stuck, so the
+    lowering refuses. The chain has no hash to curve yet (O8).
+- EIP selectors (`cast sig`): `bindToken` 0x3ff5aa02, `unbindToken`
+  0x40db3b50, `isTokenBound` 0x993e8b95, `getTokenBound()` 0x6a3edf28,
+  `canTransfer` 0xe46638e6, `transferred` 0x8baf29b4, `created`
+  0x5f8dead3, `destroyed` 0x8d2ea772, `isVerified` 0xb9209e33.
+- p2: `setLockD s v` with `v : U256` gives `TYPE_MISMATCH ... type Nat,
+  found U256`. `setIssuer s v flagYes` gives `... type Addr, found U256`.
+  `toU256` (Nat -> U256) checks `ok`. The kit has no U256 -> Nat op and no
+  U256 -> Addr op. Nat is an ABI type (`uint64`, H:200), while the common
+  proposal value is U256 (`uint256`); passing it to a Nat setter still
+  requires a checked conversion. The kind dispatch
+  `flagIf (u256Eq k 0u) (setCapN s v) ...` is not measured.
+- p3, p4: the intent-lang src diffs `3df9d96 79e1898 -- src` (S10, 4
+  files, +17/-5) and `ef5abe8 79e1898 -- src` (S8 to S10) apply to HEAD
+  with no conflict, and `langc` builds. `daokit.lang` still gives
+  `NAME_UNKNOWN: castSeal: unknown name block` after the S8 to S10 port,
+  because the S8 `Env.block` is in the domain prelude, not in src. The
+  daokit size on this kernel is not measured.
+- p5: `self` (0x..c0) and `selfWord` are build constants
+  (`examples/restrict.lang` lines 202 and 203, `examples/ballot.lang` lines
+  36 and 38).
+- p6: `test/evm.sh` runs the examples contract, events, lists, map and
+  residuals. `test/mock.sh` is a mock ERC-20 (`asmtool mock`,
+  `transferFrom` with a mode in slot 0). No ERC-3643 test token exists.
+
+Questions (the builder default is (a) in each):
+
+- Q-S7-1 the route (p1a). (a) A kit contract by hand,
+  `examples/restrictkit.lang`, built by `langc --kit build` (intent-lang
+  S10, resolve-lang Q-S7-2 (a)). `writer.c` and its rows do not change.
+  (b) A kit mode for `writer.c`. That is a writer change for the state
+  fields, the maps and the Move sum.
+- Q-S7-2 `either` (p1c). (a) The rules form builds `canTransfer` from the
+  rule bits (the `both` of the Flag tests, as `allowed.bit`), not from an
+  `either` over the `Dec`. The L1 `refl` rows tie the bit to the `Dec`.
+  The kit hooks call `stepT`, `stepM` and `stepB` directly, with no Move
+  at the word level. No lowering change. (b) Extend K4c to lower `either`
+  over a Sum (a tag word). That is a lowering change.
+- Q-S7-3 the port (p3, p4). (a) Port intent-lang `ef5abe8..79e1898` (S8 to
+  S10): the src diff (no conflict), the S8 `Env.block` prelude, the t8n
+  route, `ballottool dao` and the form of `test/dao.sh`. (b) S10 only,
+  with no `block`. Then `daokit.lang` gives NAME_UNKNOWN.
+- Q-S7-4 the proposal words (p2). (a) The words `kind : U256`, `value :
+  U256`, `who : Addr`, with `on : Flag` and `pid` as state words. A new kit
+  op `toNat : U256 -> Nat` (with eval, check and lower rows) gives
+  `pLockD` and `pRegD`. Nat is a uint64: `toNat` accepts only values at
+  most 18446744073709551615u. An out-of-range value traps in eval and
+  reverts on the chain, without truncation or wrapping. The rows cover
+  0u, 18446744073709551615u, 18446744073709551616u and the largest U256;
+  the first two succeed and the last two fail in eval and on the chain.
+  (b) `pLockD`, `pRegD`, `lockEnd` and
+  `expires` become U256. Then the S4, S5 and S6 rows change.
+- Q-S7-5 `register` on the chain (p7). (a) A state ring. The chain
+  computes H_p of each ring point at the context word (O8): an unrolled
+  try and increment with a bound K on the counter, the square root by
+  MODEXP 0x05 (the BN254 p is 3 mod 4), and a revert when no counter
+  below K gives a point. `issue` reverts for a key with no point below K.
+  The kit lowering gets an open form of `zk_unroll`: n = 2 is fixed at the
+  build, and the ring points and the context word are run-time words. The
+  eval rows of the S5 ops do not change. `issue` and the issuer map
+  (Q-S6-4 (a)) stay run-time entries, and Q-S7-6 (a) can be ruled. s2 sets
+  K from the counters of the test keys. (b) Closed rings. The ring of
+  class c is a closed list in the contract (a `flagIf` on c over two rings
+  of build-constant keys), and the context stays `selfWord` (Q-S7-6 (b)).
+  No lowering change (p7 B: 3510 bytes). `issue` has no effect on the
+  chain: a new key is a new contract (O10).
+- Q-S7-6 `self` (p5). (a) The resolve-lang Q-S7-6 (a) form: `self` is an
+  `Env` word that lowers to ADDRESS (0x30), and `selfWord` is `addrToU256
+  (self env)`. This needs Q-S7-5 (a), because a run-time context word
+  refuses now (p7 C). (b) `self` stays a build constant, and the chain rows
+  deploy at 0x..c0. (b) works with the two forms of Q-S7-5.
+- Q-S7-7 the test token (p6, Q13). (a) A new `asmtool token` mode: its
+  transfer calls `isVerified`, `canTransfer` and then `transferred`, and
+  its mint calls `created`. A chain test in the form of `test/dao.sh`. (b)
+  A Solidity token. That is a new tool.
+- Q-S7-8 the ABI (O6). (a) An abi row checks the kit selectors against the
+  EIP list above. (b) A doc check only.
+- Q-S7-9 the size and the split. The daokit runtime (16702 bytes), the
+  compliance entries (p7 A: 1433 bytes with the stubs) and the verifier
+  (p7 B: about 2.1 kB) come near the EIP-170 limit (24576), before the H_p
+  of Q-S7-5 (a). (a) Three build sessions, as resolve-lang Q-S7-4. A size
+  over EIP-170 is a STOP and ask. (b) Two contracts (compliance and DAO).
+  The kit CALL pays and pulls only (H:88).
