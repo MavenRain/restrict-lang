@@ -160,6 +160,138 @@ static int mock(Asm *a, FILE *err) {
   return asm_finish(a, err);
 }
 
+/* The compliance contract of the test token: the receiver address of
+   test/evmchain.sh. */
+static const uint64_t compliance = 0x7265636569766572u;
+
+/* Calls the compliance contract with the selector SEL and the N memory words
+   at AT as the arguments (the call data at 0x80, the returned word at 0x60).
+   A failed call jumps to REVERT; with VIEW, a returned word 0 (or no returned
+   word) also jumps to REVERT. */
+static void comply(Asm *a, uint64_t sel, const uint64_t *at, size_t n, int view, Label revert) {
+  asm_op(a, EVM_OP_PUSH0);
+  asm_push(a, 0x60);
+  asm_op(a, EVM_OP_MSTORE);
+  asm_push(a, sel);
+  asm_push(a, 0xe0);
+  asm_op(a, EVM_OP_SHL);
+  asm_push(a, 0x80);
+  asm_op(a, EVM_OP_MSTORE);
+  for (size_t i = 0; i < n; i++) {
+    mload(a, at[i]);
+    asm_push(a, 0x84 + 0x20 * i);
+    asm_op(a, EVM_OP_MSTORE);
+  }
+  asm_push(a, 32);
+  asm_push(a, 0x60);
+  asm_push(a, 4 + 0x20 * n);
+  asm_push(a, 0x80);
+  asm_op(a, EVM_OP_PUSH0);
+  asm_push(a, compliance);
+  asm_op(a, EVM_OP_GAS);
+  asm_op(a, EVM_OP_CALL);
+  asm_op(a, EVM_OP_ISZERO);
+  asm_jump_if(a, revert);
+  if (view) {
+    mload(a, 0x60);
+    asm_op(a, EVM_OP_ISZERO);
+    asm_jump_if(a, revert);
+  }
+}
+
+/* The balance of the address at memory 0x40 gets the amount at 0x00 (a
+   wrapping ADD). */
+static void credit(Asm *a) {
+  mload(a, 0x00);
+  mload(a, 0x40);
+  asm_op(a, EVM_OP_SLOAD);
+  asm_op(a, EVM_OP_ADD);
+  mload(a, 0x40);
+  asm_op(a, EVM_OP_SSTORE);
+}
+
+/* The test token of S7 s4 (Q-S7-7 (a)) for the restrict chain gate: the
+   smallest ERC-3643 token that calls the compliance contract. The balance of
+   an address is at the slot equal to the address word.
+   transfer(address,uint256) (from is the caller) reverts when the amount is
+   above the balance of from, calls isVerified(to) and canTransfer(from, to,
+   x) and reverts when one of them gives 0, moves (SUB, then ADD: a move to
+   the sender keeps the balance), calls transferred(from, to, x) and returns
+   the word 1. mint(address,uint256) (any caller) adds the amount to the
+   balance of to and calls created(to, x). balanceOf(address) returns the
+   balance. A failed call reverts. There is no event. Memory: 0x00 the
+   amount, 0x20 from, 0x40 to. Another selector reverts. */
+static int test_token(Asm *a, FILE *err) {
+  static const uint64_t to[] = {0x40};
+  static const uint64_t moved[] = {0x20, 0x40, 0x00};
+  static const uint64_t minted[] = {0x40, 0x00};
+  asm_init(a);
+  Label transfer = asm_label(a);
+  Label mint = asm_label(a);
+  Label balance = asm_label(a);
+  Label revert = asm_label(a);
+  asm_op(a, EVM_OP_PUSH0);
+  asm_op(a, EVM_OP_CALLDATALOAD);
+  asm_push(a, 0xe0);
+  asm_op(a, EVM_OP_SHR);
+  asm_op(a, EVM_OP_DUP1);
+  asm_push(a, 0xa9059cbb);
+  asm_op(a, EVM_OP_EQ);
+  asm_jump_if(a, transfer);
+  asm_op(a, EVM_OP_DUP1);
+  asm_push(a, 0x40c10f19);
+  asm_op(a, EVM_OP_EQ);
+  asm_jump_if(a, mint);
+  asm_push(a, 0x70a08231);
+  asm_op(a, EVM_OP_EQ);
+  asm_jump_if(a, balance);
+  asm_jump(a, revert);
+  asm_jumpdest(a, transfer);
+  asm_op(a, EVM_OP_POP);
+  asm_op(a, EVM_OP_CALLER);
+  asm_push(a, 0x20);
+  asm_op(a, EVM_OP_MSTORE);
+  arg(a, 0x04, 0x40);
+  arg(a, 0x24, 0x00);
+  mload(a, 0x20);
+  asm_op(a, EVM_OP_SLOAD);
+  mload(a, 0x00);
+  asm_op(a, EVM_OP_GT); /* the amount > the balance of from */
+  asm_jump_if(a, revert);
+  comply(a, 0xb9209e33, to, 1, 1, revert);
+  comply(a, 0xe46638e6, moved, 3, 1, revert);
+  mload(a, 0x00);
+  mload(a, 0x20);
+  asm_op(a, EVM_OP_SLOAD);
+  asm_op(a, EVM_OP_SUB);
+  mload(a, 0x20);
+  asm_op(a, EVM_OP_SSTORE);
+  credit(a);
+  comply(a, 0x8baf29b4, moved, 3, 0, revert);
+  return_word(a, 1);
+  asm_jumpdest(a, mint);
+  asm_op(a, EVM_OP_POP);
+  arg(a, 0x04, 0x40);
+  arg(a, 0x24, 0x00);
+  credit(a);
+  comply(a, 0x5f8dead3, minted, 2, 0, revert);
+  asm_op(a, EVM_OP_STOP);
+  asm_jumpdest(a, balance);
+  asm_push(a, 0x04);
+  asm_op(a, EVM_OP_CALLDATALOAD);
+  asm_op(a, EVM_OP_SLOAD);
+  asm_op(a, EVM_OP_PUSH0);
+  asm_op(a, EVM_OP_MSTORE);
+  asm_push(a, 32);
+  asm_op(a, EVM_OP_PUSH0);
+  asm_op(a, EVM_OP_RETURN);
+  asm_jumpdest(a, revert);
+  asm_op(a, EVM_OP_PUSH0);
+  asm_op(a, EVM_OP_PUSH0);
+  asm_op(a, EVM_OP_REVERT);
+  return asm_finish(a, err);
+}
+
 static int check_answer(const Asm *a) {
   static const char want[] = "61000d565b602a5f5260205ff35b61000456";
   char text[2 * sizeof want];
@@ -222,12 +354,13 @@ int main(int argc, char **argv) {
   static Asm creation;
   static Asm token;
   const char *mode = argc == 2 ? argv[1] : "";
-  if (argc > 2) return fputs("usage: asmtool [runtime|creation|abi|mock]\n", stderr), 2;
+  if (argc > 2) return fputs("usage: asmtool [runtime|creation|abi|mock|token]\n", stderr), 2;
   if (!answer(&runtime, stderr)) return 1;
   if (strcmp(mode, "mock") == 0) return mock(&token, stderr) && asm_write_hex(&token, stdout, stderr) ? 0 : 1;
+  if (strcmp(mode, "token") == 0) return test_token(&token, stderr) && asm_write_hex(&token, stdout, stderr) ? 0 : 1;
   if (strcmp(mode, "runtime") == 0) return asm_write_hex(&runtime, stdout, stderr) ? 0 : 1;
   if (strcmp(mode, "creation") == 0) return asm_creation(&creation, &runtime, stderr) && asm_write_hex(&creation, stdout, stderr) ? 0 : 1;
   if (strcmp(mode, "abi") == 0) return abi(stdout, stderr) ? 0 : 1;
-  if (argc == 2) return fputs("usage: asmtool [runtime|creation|abi|mock]\n", stderr), 2;
+  if (argc == 2) return fputs("usage: asmtool [runtime|creation|abi|mock|token]\n", stderr), 2;
   return checks(&runtime);
 }

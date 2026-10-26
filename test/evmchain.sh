@@ -168,7 +168,13 @@ step() {
   genesis "$1" "$_acc"
   evm run --prestate "$tmp/pre.json" --receiver "0x$receiver" --sender "$3" --input "$4" \
     --dump >"$tmp/dump" 2>&1 || return 1
-  result=$(awk '
+  result=$(outcome "$tmp/dump")
+  slots "$tmp/dump"
+}
+
+# outcome DUMP: the result of the `evm run` dump DUMP, as step gives it.
+outcome() {
+  awk '
     /^0x[0-9a-f]*$/ { o = $0 }
     / error: |^error: / { e = 1; if ($0 !~ /execution reverted/) x = 1 }
     END {
@@ -178,8 +184,7 @@ step() {
       else if (e) print "revert " substr(o, 3)
       else if (o == "" || o == "0x") print "ok"
       else print "out " substr(o, 3)
-    }' "$tmp/dump")
-  slots "$tmp/dump"
+    }' "$1"
 }
 
 # t8n NOW BLOCK CALLER INPUT ALLOC: one `evm t8n` call (Shanghai; S10, O36)

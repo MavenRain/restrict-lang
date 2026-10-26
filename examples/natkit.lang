@@ -1,0 +1,22 @@
+-- toNat on the chain (S7 s4, Q-S7-16 (a)). A Nat is an ABI uint64 (Q-S7-4):
+-- toNat accepts only a word at most 18446744073709551615u. A larger word traps
+-- in eval, and the lowering reverts (an IF with a TRAP arm). The run script
+-- test/run/natkit.script and its chain line in test/evm.sh give the four USER
+-- values: 0u and 18446744073709551615u set n, 18446744073709551616u and the
+-- largest U256 revert.
+state State := makeState (n : Nat)
+def init : State := makeState 0
+
+-- Entry: set n to the Nat of the word x.
+def setN : (env : Env) -> (s : State) -> (x : U256) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (x : U256) => some (pair (makeState (toNat x)) nil)
+
+-- View: the value of n.
+def nOf : (env : Env) -> (s : State) -> Nat := fun (env : Env) (s : State) => n s
+
+-- The eval rows: setN at the two ends of the uint64 range.
+def eN : Env := makeEnv 1 1u 0x00000000000000000000000000000000000000bb 0x0000000000000000000000007265636569766572
+def setNZero : Path (Option (Prod State (List Out))) (setN eN init 0u) (some (pair (makeState 0) nil)) := refl
+def setNMax : Path (Option (Prod State (List Out))) (setN eN init 18446744073709551615u)
+  (some (pair (makeState 18446744073709551615) nil)) := refl
+def nOfMax : Path Nat (nOf eN (makeState 18446744073709551615)) 18446744073709551615 := refl

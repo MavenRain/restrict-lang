@@ -39,3 +39,4 @@ blocks.lang
 daokit.lang
 selfenv.lang
 restrictkit.lang
+natkit.lang

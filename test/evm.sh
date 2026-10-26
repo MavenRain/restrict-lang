@@ -145,6 +145,9 @@ numbered=0
 # test/run/selfenv.script (S7 s2, Q-S7-6 (a)): its env line gives the receiver
 # address, the ADDRESS of each step.
 chain examples/selfenv.lang test/run/selfenv.script
+# test/run/natkit.script (S7 s4, Q-S7-16 (a)): toNat on the chain. 2^64 and the
+# largest U256 stop at the TRAP arm of the lowering (the Trap() selector).
+chain examples/natkit.lang test/run/natkit.script
 
 rm -rf "$tmp"
 echo "evm steps: $steps checked"

@@ -24,7 +24,7 @@ def burn : Addr -> U256 -> Move := fun (f : Addr) (x : U256) => inr (inr (pair f
 -- the used key images, the class code and the end of each registration, and
 -- the two coordinates of each ring slot. Part G (Q-S6-2 (a), Q-S6-4 (a),
 -- Q-S6-5 (a)): the four Params words, the issuer map and the class pass set.
-state State := makeState (bal : Map Addr U256) (holders : U256) (holdersIn : Map U256 U256) (lockEnd : Map Addr Nat) (bound : Addr) (decided : Addr) (used : Map U256 Flag) (clsOf : Map Addr U256) (expires : Map Addr Nat) (ringX : Map U256 U256) (ringY : Map U256 U256) (pCapN : U256) (pCapCN : U256) (pLockD : Nat) (pRegD : Nat) (issuers : Map Addr Flag) (passCls : Map U256 Flag)
+state State := makeState (bal : Map Addr U256) (holders : U256) (holdersIn : Map U256 U256) (lockEnd : Map Addr Nat) (bound : Addr) (decided : Addr) (used : Map U256 Flag) (clsOf : Map Addr U256) (expires : Map Addr Nat) (ringX : Map U256 U256) (ringY : Map U256 U256) (pCapN : U256) (pCapCN : U256) (pLockD : Nat) (pRegD : Nat) (issuers : Map Addr Flag) (passCls : Map U256 Flag) (dao : Addr)
 
 def noAddr : Addr := 0x0000000000000000000000000000000000000000
 def testToken : Addr := 0x00000000000000000000000000000000000000ee
@@ -32,9 +32,12 @@ def testToken : Addr := 0x00000000000000000000000000000000000000ee
 -- and 3u, the lock length 86400 s, the registration length 31536000 s, the
 -- issuer issuer0 and the pass of class 0. A DAO decision changes them.
 def issuer0 : Addr := 0x00000000000000000000000000000000000000e1
+-- Q-S7-15 (a): the dao field is the address that can call the setters. In S7
+-- s5 it is the address of restrictdao.
+def daoAddr : Addr := 0x00000000000000000000000000000000000000da
 def init : State :=
   makeState mapEmpty 0u mapEmpty mapEmpty noAddr testToken mapEmpty mapEmpty mapEmpty mapEmpty mapEmpty
-    2u 3u 86400 31536000 (mapSet mapEmpty issuer0 flagYes) (mapSet mapEmpty 0u flagYes)
+    2u 3u 86400 31536000 (mapSet mapEmpty issuer0 flagYes) (mapSet mapEmpty 0u flagYes) daoAddr
 
 -- Q-S3-1 (a), Q-S5-6 (a): the class code of an address is its clsOf entry.
 -- An address that did not register has class 0.
@@ -77,7 +80,7 @@ def stepT : State -> Addr -> Addr -> U256 -> State :=
         (clsCode s f) (both (notF (addrEq f t)) (loses (mapGet (bal s) f) x)))
       (lockEnd s) (bound s) (decided s)
       (used s) (clsOf s) (expires s) (ringX s) (ringY s)
-      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)
+      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s) (dao s)
 
 -- A mint. A mint of x > 0 moves the lock end of t to the later of the two
 -- times (Q7 (a)). The lock length is the state word pLockD (Q-S6-2 (a)). A
@@ -91,7 +94,7 @@ def stepM : State -> Env -> Addr -> U256 -> State :=
       (mapSet (lockEnd s) t (flagIf (u256Eq x 0u) (mapGet (lockEnd s) t) (later (mapGet (lockEnd s) t) (natAdd (now e) (pLockD s)))))
       (bound s) (decided s)
       (used s) (clsOf s) (expires s) (ringX s) (ringY s)
-      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)
+      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s) (dao s)
 
 -- A burn.
 def stepB : State -> Addr -> U256 -> State :=
@@ -102,7 +105,7 @@ def stepB : State -> Addr -> U256 -> State :=
       (drop (holdersIn s) (clsCode s f) (loses (mapGet (bal s) f) x))
       (lockEnd s) (bound s) (decided s)
       (used s) (clsOf s) (expires s) (ringX s) (ringY s)
-      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)
+      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s) (dao s)
 
 -- The hook effect: balances, counts and lock ends.
 def step : State -> Env -> Move -> State :=
@@ -193,7 +196,7 @@ def setBound : State -> Addr -> State :=
   fun (s : State) (t : Addr) =>
     makeState (bal s) (holders s) (holdersIn s) (lockEnd s) t (decided s)
       (used s) (clsOf s) (expires s) (ringX s) (ringY s)
-      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)
+      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s) (dao s)
 
 def bindToken : (env : Env) -> (s : State) -> (t : Addr) -> Option (Prod State (List Out)) :=
   fun (env : Env) (s : State) (t : Addr) =>
@@ -205,6 +208,47 @@ def unbindToken : (env : Env) -> (s : State) -> (t : Addr) -> Option (Prod State
     flagIf (both (notF (addrEq t noAddr)) (both (addrEq t (bound s)) (notF (addrEq t (decided s)))))
       (some (pair (setBound s noAddr) (cons (TokenUnbound t) nil)))
       none
+
+-- The setters (Q-S6-8 (a), Q-S7-15 (a)): each DAO decision sets one Part G
+-- word, or the token that the DAO decided to bind. Only the dao address of
+-- the state can call a setter; another caller reverts. The two Nat words (the
+-- lock and the registration lengths) come as U256 words through toNat, so a
+-- word above 2^64 - 1 reverts (Q-S7-4).
+def withGov : State -> Addr -> U256 -> U256 -> Nat -> Nat -> Map Addr Flag -> Map U256 Flag -> State :=
+  fun (s : State) (d : Addr) (a : U256) (b : U256) (l : Nat) (r : Nat) (iss : Map Addr Flag) (pc : Map U256 Flag) =>
+    makeState (bal s) (holders s) (holdersIn s) (lockEnd s) (bound s) d
+      (used s) (clsOf s) (expires s) (ringX s) (ringY s) a b l r iss pc (dao s)
+def fromDao : State -> Env -> Flag := fun (s : State) (e : Env) => addrEq (caller e) (dao s)
+def setCapN : (env : Env) -> (s : State) -> (v : U256) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (v : U256) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s (decided s) v (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)) nil)) none
+def setCapCN : (env : Env) -> (s : State) -> (v : U256) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (v : U256) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s (decided s) (pCapN s) v (pLockD s) (pRegD s) (issuers s) (passCls s)) nil)) none
+def setLockD : (env : Env) -> (s : State) -> (v : U256) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (v : U256) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s (decided s) (pCapN s) (pCapCN s) (toNat v) (pRegD s) (issuers s) (passCls s)) nil)) none
+def setRegD : (env : Env) -> (s : State) -> (v : U256) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (v : U256) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s (decided s) (pCapN s) (pCapCN s) (pLockD s) (toNat v) (issuers s) (passCls s)) nil)) none
+def setIssuer : (env : Env) -> (s : State) -> (a : Addr) -> (f : Flag) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (a : Addr) (f : Flag) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s (decided s) (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (mapSet (issuers s) a f) (passCls s)) nil))
+      none
+def setPass : (env : Env) -> (s : State) -> (k : U256) -> (f : Flag) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (k : U256) (f : Flag) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s (decided s) (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (mapSet (passCls s) k f)) nil))
+      none
+def setDecided : (env : Env) -> (s : State) -> (t : Addr) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (t : Addr) =>
+    flagIf (fromDao s env)
+      (some (pair (withGov s t (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)) nil)) none
 
 -- Views.
 def isTokenBound : (env : Env) -> (s : State) -> (t : Addr) -> Flag :=
@@ -242,7 +286,7 @@ def setKey : State -> U256 -> U256 -> U256 -> State :=
   fun (s : State) (k : U256) (kx : U256) (ky : U256) =>
     makeState (bal s) (holders s) (holdersIn s) (lockEnd s) (bound s) (decided s)
       (used s) (clsOf s) (expires s) (mapSet (ringX s) k kx) (mapSet (ringY s) k ky)
-      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)
+      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s) (dao s)
 
 -- Q-S7-13 (a): hpAt k w c is yes when the x word of H_p (k, w) is the hash
 -- of the counter c. hpOk k w is yes when a counter below K = 8 gives it (the
@@ -296,7 +340,7 @@ def regSet : State -> Env -> U256 -> U256 -> U256 -> State :=
     makeState (bal s) (holders s) (holdersIn s) (lockEnd s) (bound s) (decided s)
       (mapSet (used s) (hash ix iy) flagYes) (mapSet (clsOf s) (caller e) c)
       (mapSet (expires s) (caller e) (natAdd (now e) (pRegD s))) (ringX s) (ringY s)
-      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s)
+      (pCapN s) (pCapCN s) (pLockD s) (pRegD s) (issuers s) (passCls s) (dao s)
 
 -- register c c1 s1 s2 ix iy: the five words of a signature for n = 2.
 def register : (env : Env) -> (s : State) -> (c c1 s1 s2 ix iy : U256) -> Option (Prod State (List Out)) :=
@@ -518,3 +562,34 @@ def fullState : State := setKey partialState (slot 0u 1u) 1u 2u
 def fullSig : List U256 := zkSignAt (ring fullState 0u) 1u 256u (addrToU256 dave)
 def fullBoundYes : Path Flag (ringBound fullState partialEnv 0u) flagYes := refl
 def fullAccepted : Path Flag (regOk fullState partialEnv 0u fullSig (first partialImg) (second partialImg)) flagYes := refl
+
+-- The setters (S7 s4, Q-S7-15 (a)): the dao caller sets the word, and
+-- another caller (dave) reverts. lockD and regD come through toNat.
+def SetR : Type 0 := Option (Prod State (List Out))
+def eDao : Env := makeEnv 100 100u daoAddr selfAddr
+def daoIs : Path Addr (dao init) daoAddr := refl
+def setCapNDao : Path SetR (setCapN eDao init 5u)
+  (some (pair (withGov init testToken 5u 3u 86400 31536000 (issuers init) (passCls init)) nil)) := refl
+def setCapNOther : Path SetR (setCapN eD init 5u) none := refl
+def setCapCNDao : Path SetR (setCapCN eDao init 6u)
+  (some (pair (withGov init testToken 2u 6u 86400 31536000 (issuers init) (passCls init)) nil)) := refl
+def setCapCNOther : Path SetR (setCapCN eD init 6u) none := refl
+def setLockDDao : Path SetR (setLockD eDao init 3600u)
+  (some (pair (withGov init testToken 2u 3u 3600 31536000 (issuers init) (passCls init)) nil)) := refl
+def setLockDOther : Path SetR (setLockD eD init 3600u) none := refl
+def setRegDDao : Path SetR (setRegD eDao init 7200u)
+  (some (pair (withGov init testToken 2u 3u 86400 7200 (issuers init) (passCls init)) nil)) := refl
+def setRegDOther : Path SetR (setRegD eD init 7200u) none := refl
+def setIssuerDao : Path SetR (setIssuer eDao init dave flagYes)
+  (some (pair (withGov init testToken 2u 3u 86400 31536000 (mapSet (issuers init) dave flagYes) (passCls init)) nil)) := refl
+def setIssuerOther : Path SetR (setIssuer eD init dave flagYes) none := refl
+def setIssuerOff : Path SetR (setIssuer eDao init dave flagNo)
+  (some (pair (withGov init testToken 2u 3u 86400 31536000 (mapSet (issuers init) dave flagNo) (passCls init)) nil)) := refl
+def setPassDao : Path SetR (setPass eDao init 1u flagYes)
+  (some (pair (withGov init testToken 2u 3u 86400 31536000 (issuers init) (mapSet (passCls init) 1u flagYes)) nil)) := refl
+def setPassOther : Path SetR (setPass eD init 1u flagYes) none := refl
+def setDecidedDao : Path SetR (setDecided eDao init carol)
+  (some (pair (withGov init carol 2u 3u 86400 31536000 (issuers init) (passCls init)) nil)) := refl
+def setDecidedOther : Path SetR (setDecided eD init carol) none := refl
+-- The dao address is not the caller of a hook: the dao field does not change.
+def setKeepsDao : Path Addr (dao (withGov init carol 5u 6u 1 2 (issuers init) (passCls init))) daoAddr := refl

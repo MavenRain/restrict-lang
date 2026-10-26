@@ -1,0 +1,8 @@
+1 setN ok
+2 nOf = 0
+3 setN ok
+4 nOf = 18446744073709551615
+5 setN trap
+6 setN trap
+7 nOf = 18446744073709551615
+state makeState 18446744073709551615
