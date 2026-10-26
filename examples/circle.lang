@@ -7,7 +7,7 @@ def loopPath : Path S1 base base := fun (i : I) => loop i
 -- A family with no parameters transports a value to itself.
 def transpBase : Path S1 (transp (fun (_ : I) => S1) i0 base) base := refl
 -- The fold sends the base to 0 and the loop to the constant path at 0.
-def toNat : S1 -> Nat := fun (x : S1) => fold 0 (fun (i : I) => 0) x
+def s1ToNat : S1 -> Nat := fun (x : S1) => fold 0 (fun (i : I) => 0) x
 -- The composite of loop with loop is a formal hcomp (a canonical value).
 def loop2 : Path S1 base base :=
   fun (j : I) => hcomp S1 (~j \/ j) (fun (i : I) => [ ~j -> base, j -> loop i ]) (loop j)

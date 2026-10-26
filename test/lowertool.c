@@ -389,6 +389,16 @@ int main(void) {
     "def entry : Env -> State -> Nat -> Option (Prod State (List Out)) := fun env s x => "
     "some (pair (makeState 9) (cons (pay " TOKEN " " TOKEN " (toU256 (natDiv 7 x))) nil))\n",
     1, 1, 0, 1, 0, 0);
+  /* restrict-lang S7 (Q-S7-4 (a)): toNat of a word argument is an IF whose
+     false arm traps; toNat of a word above 2^64 - 1 is a trap before the
+     state write. */
+  ok &= regression("to-nat-symbolic",
+    "def entry : Env -> State -> U256 -> Option (Prod State (List Out)) := fun env s x => "
+    "some (pair (makeState (toNat x)) nil)\n",
+    1, 1, 1, 0, 1, 0);
+  ok &= regression("to-nat-static-trap", ENTRY
+    "some (pair (makeState (toNat 18446744073709551616u)) nil)\n",
+    1, 0, 1, 0, 0, 0);
   ok &= order_regression("call-order-pay", ENTRY
     "some (pair (makeState 9) (cons (pay " TOKEN " " TOKEN " 7u) nil))\n", 0);
   ok &= order_regression("call-order-stored-pull", ENTRY

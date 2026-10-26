@@ -219,7 +219,7 @@ static int prove_output(int trap, int broken, const char *poll) {
 static int rules_regressions(void) {
   static const char PRELUDE[] =
     "family Empty := emptyLoop (emptyOf : Empty)\n"
-    "family Env := makeEnv (now : Nat) (caller : Addr)\n";
+    "family Env := makeEnv (now : Nat) (block : U256) (caller : Addr) (self : Addr)\n";
   static const char TRANSFER[] =
     "def transfer : Addr -> Addr -> U256 -> Unit := fun f t x => unit\n";
   static const char *const NAMES[] = {
@@ -625,6 +625,13 @@ int main(void) {
                   "  fun c p => sz0", NULL);
   ok &= law_guest("def verified : Size := sz0", "REFUSE_NAME");
   ok &= law_guest("def Transcript : Size := sz0", "REFUSE_NAME");
+  /* Part S (S8, Q-S8-4 (a)): meaning has the codomain Type 0 and decrypts
+     only in the argument of ZKProof, so it is not law-only. */
+  ok &= law_guest("def meaningAt : (c : Enc Size) -> (d : Enc Size) -> Type 0 :=\n"
+                  "  fun c d => ZKProof (Path Size (decrypt Size c) (decrypt Size d))", NULL);
+  /* Fill is the two openings and meaning: decrypt only under ZKProof. */
+  ok &= law_guest("def FillAt : (c : Enc Size) -> (d : Enc Size) -> (a o : Size) -> Type 0 :=\n"
+                  "  fun c d a o => Prod (ZKProof (Path Size (decrypt Size c) a)) (ZKProof (Path Size (decrypt Size d) o))", NULL);
   /* The generated names are R4 names: a bisimulation name, a destructor
      name and a corecursor name that an earlier def holds are refused. */
   ok &= domain("def StrmBisim : Type 1 := Type 0\n"

@@ -50,13 +50,13 @@ while read -r line <&3; do
   for name in "$@"; do
     n=$((n + 1))
     words=$(build/langc prove "test/contract/$ballots.lang" "$name" 0u | tr '\n' ' ')
-    echo "$n $dcaller cast" $words >>"$tmp/diff.script"
+    echo "$n ${n}u $dcaller cast" $words >>"$tmp/diff.script"
     echo "$n cast ok" >>"$tmp/diff.want"
   done
   flag=flagNo
   if [ "${want#* }" = 1 ]; then flag=flagYes; fi
-  printf '%s\n' "$((n + 1)) $dcaller outcome" "$((n + 2)) $dcaller enact" \
-    "$((n + 3)) $dcaller selfConstituting" >>"$tmp/diff.script"
+  printf '%s\n' "$((n + 1)) $((n + 1))u $dcaller outcome" "$((n + 2)) $((n + 2))u $dcaller enact" \
+    "$((n + 3)) $((n + 3))u $dcaller selfConstituting" >>"$tmp/diff.script"
   printf '%s\n' "$((n + 1)) outcome = ${want%% *}u" "$((n + 2)) enact ok" \
     "$((n + 3)) selfConstituting = $flag" >>"$tmp/diff.want"
   status=0
@@ -83,18 +83,24 @@ run_refused() {
   esac
 }
 caller=0x00000000000000000000000000000000000000bb
-run_refused 1 RUN_SCRIPT examples/contract.lang "1 0xbb deposit 5u"
-run_refused 1 RUN_SCRIPT examples/contract.lang "x $caller deposit 5u"
-run_refused 2 EVAL_ARGS examples/contract.lang "1 $caller deposit 5"
-run_refused 2 EVAL_ARGS examples/contract.lang "1 $caller deposit 5u 6u"
-run_refused 1 EVAL_ENTRY examples/contract.lang "1 $caller checkpoint init 7u"
-run_refused 1 EVAL_ENTRY examples/contract.lang "1 $caller nope"
-run_refused 1 RUN_INIT examples/entries.lang "1 $caller addPrice 1 2"
-run_refused 1 EVAL_ENTRY examples/map.lang "1 $caller putAll 3"
-run_refused 1 EVAL_ENTRY examples/map.lang "1 $caller allBooks"
+run_refused 1 RUN_SCRIPT examples/contract.lang "1 1u 0xbb deposit 5u"
+run_refused 1 RUN_SCRIPT examples/contract.lang "x 1u $caller deposit 5u"
+run_refused 2 EVAL_ARGS examples/contract.lang "1 1u $caller deposit 5"
+run_refused 2 EVAL_ARGS examples/contract.lang "1 1u $caller deposit 5u 6u"
+run_refused 1 EVAL_ENTRY examples/contract.lang "1 1u $caller checkpoint init 7u"
+run_refused 1 EVAL_ENTRY examples/contract.lang "1 1u $caller nope"
+run_refused 1 RUN_INIT examples/entries.lang "1 1u $caller addPrice 1 2"
+run_refused 1 EVAL_ENTRY examples/map.lang "1 1u $caller putAll 3"
+run_refused 1 EVAL_ENTRY examples/map.lang "1 1u $caller allBooks"
+run_refused 1 RUN_SCRIPT examples/contract.lang "1 x $caller ping"
+# The env line (S7 s2, Q-S7-6 (a)) is env SELF, one time, before the first call.
+run_refused 1 RUN_SCRIPT examples/selfenv.lang "env"
+run_refused 1 RUN_SCRIPT examples/selfenv.lang "env 1u"
+run_refused 1 RUN_SCRIPT examples/selfenv.lang "$(printf 'env %s\nenv %s' "$caller" "$caller")"
+run_refused 1 RUN_SCRIPT examples/selfenv.lang "$(printf '1 1u %s stamp\nenv %s' "$caller" "$caller")"
 
 # A NUL cannot hide extra words. Calls before the bad line keep their output.
-printf '1 %s balance\n2 %s deposit 5u\000 6u\n' "$caller" "$caller" >"$tmp/bad.script"
+printf '1 1u %s balance\n2 2u %s deposit 5u\000 6u\n' "$caller" "$caller" >"$tmp/bad.script"
 status=0
 build/langc --kit run examples/contract.lang "$tmp/bad.script" >"$tmp/out" 2>"$tmp/err" || status=$?
 printf '1 balance = 0u\n' >"$tmp/want"

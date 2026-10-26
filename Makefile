@@ -13,7 +13,7 @@ ELGAMAL_TOOL = test/elgamaltool.c src/front/u256.c src/front/bn254.c src/front/b
 THRESHOLD_TOOL = test/thresholdtool.c src/front/u256.c src/front/bn254.c src/front/blsag.c src/front/elgamal.c src/front/threshold.c src/keccak.c
 SECP_TOOL = test/secptool.c src/front/u256.c src/front/bn254.c src/front/secp256k1.c src/keccak.c
 SIGMA_TOOL = test/sigmatool.c src/front/u256.c src/front/bn254.c src/front/blsag.c src/front/elgamal.c src/front/threshold.c src/front/sigma.c src/keccak.c
-BALLOT_TOOL = test/ballottool.c src/front/u256.c src/front/bn254.c src/front/blsag.c src/front/elgamal.c src/front/threshold.c src/front/sigma.c src/keccak.c
+BALLOT_TOOL = test/ballottool.c src/front/u256.c src/front/bn254.c src/front/secp256k1.c src/front/blsag.c src/front/elgamal.c src/front/threshold.c src/front/sigma.c src/keccak.c
 PATH_TOOL = test/pathtool.c $(filter-out src/front/front.c,$(FRONT))
 RUN_TOOL = test/runtool.c $(FRONT)
 WRITER_TOOL = test/writertool.c $(FRONT) src/front/writer.c
@@ -124,6 +124,7 @@ check: build/langc build/asmtool build/fronttool build/blsagtool build/elgamalto
 	sh test/evm.sh
 	sh test/precompile.sh
 	sh test/mock.sh
+	sh test/dao.sh
 	sh test/diff.sh
 	sh test/review.sh
 	build/fronttool

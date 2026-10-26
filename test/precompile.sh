@@ -28,7 +28,7 @@ call() {
   shift 2
   steps=$((steps + 1))
   _input=$(input "$prog" "$_name" "$@")
-  if ! step 1 "$caller" "$_input"; then
+  if ! step 1 1u "$caller" "$_input"; then
     echo "FAIL precompile $_name: evm: $(head -n 1 "$tmp/dump")"
     fail=$((fail + 1))
     return

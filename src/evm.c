@@ -235,6 +235,17 @@ static int emit_binary(Emit *e, const IrExpr *x) {
   return 0;
 }
 
+/* The op of an Env field (C-K4-12; NUMBER since S10, O17; ADDRESS since S7). */
+static Op env_op(IrEnv field) {
+  switch (field) {
+  case IR_ENV_NOW: return EVM_OP_TIMESTAMP;
+  case IR_ENV_BLOCK: return EVM_OP_NUMBER;
+  case IR_ENV_CALLER: return EVM_OP_CALLER;
+  case IR_ENV_SELF: return EVM_OP_ADDRESS;
+  }
+  return EVM_OP_CALLER;
+}
+
 static int emit_expr(Emit *e, const IrExpr *x) {
   switch (x->kind) {
   case IR_EXPR_CONST: asm_push(e->a, x->value); return 1;
@@ -246,7 +257,7 @@ static int emit_expr(Emit *e, const IrExpr *x) {
     emit_ops(e->a, (const Op[]){EVM_OP_ADD, EVM_OP_MLOAD}, 2);
     return 1;
   case IR_EXPR_WORD: asm_push_word(e->a, x->word); return 1;
-  case IR_EXPR_ENV: asm_op(e->a, x->field == IR_ENV_NOW ? EVM_OP_TIMESTAMP : EVM_OP_CALLER); return 1;
+  case IR_EXPR_ENV: asm_op(e->a, env_op((IrEnv)x->field)); return 1;
   case IR_EXPR_SLOAD:
     if (!emit_expr(e, x->left)) return 0;
     asm_op(e->a, EVM_OP_SLOAD);

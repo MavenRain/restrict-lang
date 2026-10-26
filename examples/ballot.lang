@@ -33,9 +33,9 @@ def dleqTag : U256 := 1684825457u
 def pid : U256 := 1u
 
 -- The contract word, as in restrict.lang (a constant until the writer of S7).
-def self : Addr := 0x00000000000000000000000000000000000000c0
+def selfAddr : Addr := 0x00000000000000000000000000000000000000c0
 
-def selfWord : U256 := addrToU256 self
+def selfWord : U256 := addrToU256 selfAddr
 
 -- The context word of the ring signature.
 def pctx : U256 := hash selfWord pid

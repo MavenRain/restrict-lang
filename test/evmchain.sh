@@ -7,6 +7,10 @@
 # block 0 and shanghaiTime 0 (PUSH0).
 receiver=0000000000000000000000007265636569766572
 config='{"chainId":1,"homesteadBlock":0,"eip150Block":0,"eip155Block":0,"eip158Block":0,"byzantiumBlock":0,"constantinopleBlock":0,"petersburgBlock":0,"istanbulBlock":0,"berlinBlock":0,"londonBlock":0,"mergeNetsplitBlock":0,"shanghaiTime":0,"terminalTotalDifficulty":0,"terminalTotalDifficultyPassed":true}'
+# The t8n route (S10, O36): a chain that sets numbered=1 runs each step with
+# BLOCK > 0 on `evm t8n`, from the address key of the secret key below.
+key=a94f5374fce5edbc8e2a8697c15331677e6ebf0b
+secret=45a915e4d060149eb4365960e6a7a45f334393093061116b197e3240065ff2d8
 
 # keccak HEX: keccak256 of the bytes HEX (CALLDATACOPY, SHA3, RETURN of 32 bytes).
 keccak() { evm run --code 365f5f37365f205f5260205ff3 --input "$1" 2>&1 | cut -c3-; }
@@ -123,7 +127,9 @@ slots() {
 }
 
 # genesis TIME ALLOC: tmp/pre.json gets a prestate at TIMESTAMP TIME with the
-# alloc entries ALLOC.
+# alloc entries ALLOC. The prestate has no block number: `evm run` (1.14)
+# refuses a genesis with number > 0 (S8, O17). A step at NUMBER > 0 is a t8n
+# step (S10, O36).
 genesis() {
   printf '{"config":%s,"timestamp":"0x%x","gasLimit":"0x1c9c380","difficulty":"0x0","alloc":{%s}}\n' \
     "$config" "$1" "$2" >"$tmp/pre.json"
@@ -140,16 +146,27 @@ deploy() {
   slots "$tmp/dump"
 }
 
-# step NOW CALLER INPUT: call the receiver (the code in tmp/code, the storage
-# in tmp/raw) from CALLER with INPUT at TIMESTAMP NOW. result gets ok, revert,
-# trap (the Trap() selector), error, `revert HEX` or `out HEX`. tmp/raw and
-# tmp/got get the storage after the call. A set alloc (`,"0xADDR":{...}`)
-# adds accounts to the prestate (test/diff.sh: the mock token); then tmp/raw
-# holds the storage of all accounts.
+# step NOW BLOCK CALLER INPUT: call the receiver (the code in tmp/code, the
+# storage in tmp/raw) from CALLER with INPUT at TIMESTAMP NOW. BLOCK (the
+# `langc run` column, O17) is not in the prestate: NUMBER is 0. With
+# numbered=1 and BLOCK > 0, the step is a t8n step at NUMBER BLOCK (S10,
+# O36) and CALLER must be 0x$key. result gets ok, revert, trap (the Trap()
+# selector), error, `revert HEX` or `out HEX`. tmp/raw and tmp/got get the
+# storage after the call, stepped gets run or t8n. A set alloc
+# (`,"0xADDR":{...}`) adds accounts to the prestate (test/diff.sh: the mock
+# token); then tmp/raw holds the storage of all accounts.
 step() {
   _st=$(awk '{ printf "%s\"0x%s\":\"0x%s\"", (NR > 1 ? "," : ""), $1, $2 }' "$tmp/raw")
-  genesis "$1" "\"0x$receiver\":{\"balance\":\"0x0\",\"code\":\"0x$(cat "$tmp/code")\",\"storage\":{$_st}}${alloc:-}"
-  evm run --prestate "$tmp/pre.json" --receiver "0x$receiver" --sender "$2" --input "$3" \
+  _acc="\"0x$receiver\":{\"balance\":\"0x0\",\"code\":\"0x$(cat "$tmp/code")\",\"storage\":{$_st}}${alloc:-}"
+  if [ "${numbered:-0}" = 1 ] && [ "${2%u}" != 0 ]; then
+    stepped=t8n
+    t8n "$1" "${2%u}" "$3" "$4" "$_acc" || return 1
+    slots "$tmp/dump"
+    return 0
+  fi
+  stepped=run
+  genesis "$1" "$_acc"
+  evm run --prestate "$tmp/pre.json" --receiver "0x$receiver" --sender "$3" --input "$4" \
     --dump >"$tmp/dump" 2>&1 || return 1
   result=$(awk '
     /^0x[0-9a-f]*$/ { o = $0 }
@@ -165,9 +182,61 @@ step() {
   slots "$tmp/dump"
 }
 
+# t8n NOW BLOCK CALLER INPUT ALLOC: one `evm t8n` call (Shanghai; S10, O36)
+# from the key address to the receiver with INPUT at TIMESTAMP NOW and NUMBER
+# BLOCK, on the alloc entries ALLOC and the key account (nonce 0). It fails
+# if CALLER is not 0x$key. tmp/dump gets the output alloc in the form of
+# `evm run --dump` (each storage value without 0x and leading zero bytes). result
+# comes from the trace summary (the last trace line: output, gasUsed and, on
+# a revert or a trap, error), gas gets its gasUsed: the execution gas, the
+# base of `evm run --statdump` (result.json gasUsed adds the intrinsic gas).
+# tmp/t8n/result.json holds the receipt (the logs of the call).
+t8n() {
+  [ "$3" = "0x$key" ] || { echo "t8n: the caller $3 is not the key address 0x$key" >"$tmp/dump"; return 1; }
+  rm -rf "$tmp/t8n"
+  mkdir -p "$tmp/t8n"
+  printf '{%s,"0x%s":{"balance":"0x3635c9adc5dea00000","nonce":"0x0","code":"0x","storage":{}}}\n' \
+    "$5" "$key" >"$tmp/t8n/alloc.json"
+  printf '{"currentCoinbase":"0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba","currentDifficulty":"0x0","currentRandom":"0x%s","currentGasLimit":"0x1c9c380","currentNumber":"0x%x","currentTimestamp":"0x%x","currentBaseFee":"0x7","withdrawals":[]}\n' \
+    "$(pad 0)" "$2" "$1" >"$tmp/t8n/env.json"
+  printf '[{"type":"0x0","gas":"0x1c9c380","gasPrice":"0x10","nonce":"0x0","to":"0x%s","value":"0x0","input":"0x%s","v":"0x0","r":"0x0","s":"0x0","secretKey":"0x%s","protected":false}]\n' \
+    "$receiver" "$4" "$secret" >"$tmp/t8n/txs.json"
+  evm t8n --input.alloc "$tmp/t8n/alloc.json" --input.env "$tmp/t8n/env.json" --input.txs "$tmp/t8n/txs.json" \
+    --state.fork Shanghai --output.basedir "$tmp/t8n" --output.result result.json --output.alloc alloc.out.json \
+    --trace >"$tmp/t8n/log" 2>&1 || { cp "$tmp/t8n/log" "$tmp/dump"; return 1; }
+  _trace=$(ls "$tmp/t8n"/trace-0-*.jsonl 2>/dev/null)
+  [ -n "$_trace" ] || { echo "t8n: the call was rejected (no trace)" >"$tmp/dump"; return 1; }
+  awk -F'"' -v OFS='"' 'NF >= 5 && length($2) == 66 && substr($2, 1, 2) == "0x" {
+      v = tolower(substr($4, 3)); sub(/^(00)+/, "", v); $4 = (v == "" ? "00" : v) }
+    { print }' "$tmp/t8n/alloc.out.json" >"$tmp/dump"
+  tail -n 1 "$_trace" | awk -F'"' '{ for (i = 2; i + 2 <= NF; i += 4) v[$i] = $(i + 2) }
+    END { print v["gasUsed"]; print v["output"]; print v["error"] }' >"$tmp/t8n/sum"
+  gas=$(printf '%d' "$(awk 'NR == 1' "$tmp/t8n/sum")")
+  result=$(awk '
+    NR == 2 { o = $0 }
+    NR == 3 { e = $0 }
+    END {
+      if (e != "" && e != "execution reverted") print "error"
+      else if (e != "" && o == "ae96083a") print "trap"
+      else if (e != "" && o == "") print "revert"
+      else if (e != "") print "revert " o
+      else if (o == "") print "ok"
+      else print "out " o
+    }' "$tmp/t8n/sum")
+}
+
 # logs CALLER INPUT: the logs of the step on tmp/pre.json (the LOGS block of
-# `evm run --debug`), one line for each LOG: the topics and the data.
+# `evm run --debug`), one line for each LOG: the topics and the data. After a
+# t8n step, the logs of the receipt in tmp/t8n/result.json.
 logs() {
+  if [ "${stepped:-run}" = t8n ]; then
+    awk -F'"' '
+      $2 == "topics" { t = ""; q = 1; next }
+      q && substr($2, 1, 2) == "0x" { t = t (t == "" ? "" : ",") substr($2, 3); next }
+      q { q = 0 }
+      $2 == "data" { d = substr($4, 3); print t " " (d == "" ? "-" : d); t = "" }' "$tmp/t8n/result.json" >"$tmp/gotlogs"
+    return 0
+  fi
   evm run --debug --prestate "$tmp/pre.json" --receiver "0x$receiver" --sender "$1" --input "$2" \
     >"$tmp/debug" 2>&1 </dev/null || return 1
   awk '

@@ -70,8 +70,8 @@ row() {
     norm <"$3" >"$tmp/want"
   fi
   set -- "$@" $(awk 'END { print }' "$tmp/calls")
-  _input=$(input "$prog" "${11}" "${12}")
-  if ! step "$9" "${10}" "$_input"; then
+  _input=$(input "$prog" "${12}" "${13}")
+  if ! step "$9" "${10}" "${11}" "$_input"; then
     echo "FAIL diff $1: evm: $(head -n 1 "$tmp/dump")"
     fail=$((fail + 1))
     return
@@ -88,7 +88,7 @@ row() {
     echo "FAIL diff $1: mock storage: want $(tr '\n' ' ' <"$tmp/twant"), got $(tr '\n' ' ' <"$tmp/tgot")"
     fail=$((fail + 1))
   }
-  logs "${10}" "$_input" || { echo "FAIL diff $1: evm --debug"; fail=$((fail + 1)); return; }
+  logs "${11}" "$_input" || { echo "FAIL diff $1: evm --debug"; fail=$((fail + 1)); return; }
   _log=$(cat "$tmp/gotlogs")
   [ "$_log" = "$8" ] || { echo "FAIL diff $1: logs: want ${8:--}, got ${_log:--}"; fail=$((fail + 1)); }
 }
@@ -98,8 +98,8 @@ if ! deploy "$prog"; then
   exit 1
 fi
 cp "$tmp/raw" "$tmp/s0"
-dep="100 0x$user deposit 30u"
-wd="$dep;101 0x$user withdraw 30u"
+dep="100 100u 0x$user deposit 30u"
+wd="$dep;101 101u 0x$user withdraw 30u"
 moved="bb:$neg cc:1e"
 paid="$moved $receiver:$neg aa:1e"
 
@@ -155,12 +155,12 @@ script() {
   while [ "$_k" -lt "$_calls" ]; do
     _k=$((_k + 1))
     set -- $(awk -v k="$_k" 'NR == k' "$tmp/calls")
-    _now=$1 _caller=$2 _name=$3
-    shift 3
+    _now=$1 _block=$2 _caller=$3 _name=$4
+    shift 4
     alloc=",\"0x$token\":{\"balance\":\"0x0\",\"code\":\"0x$(cat "$tmp/mock")\",\"storage\":{$(
       awk '{ printf "%s\"0x%s\":\"0x%s\"", (NR > 1 ? "," : ""), $1, $2 }' "$tmp/m")}}"
     _input=$(input "$_prog" "$_name" "$@")
-    if ! step "$_now" "$_caller" "$_input"; then
+    if ! step "$_now" "$_block" "$_caller" "$_input"; then
       echo "FAIL diff $_script:$_k $_name: evm: $(head -n 1 "$tmp/dump")"
       fail=$((fail + 1))
       return

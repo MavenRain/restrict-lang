@@ -27,7 +27,7 @@ static const char *const OP_NAMES[] = {
   [OP_NAT_EQ] = "natEq", [OP_NAT_LE] = "natLe",
   [OP_FLAG_IF] = "flagIf", [OP_U256_ADD] = "u256Add", [OP_U256_SUB] = "u256Sub",
   [OP_U256_LE] = "u256Le",
-  [OP_U256_EQ] = "u256Eq", [OP_TO_U256] = "toU256",
+  [OP_U256_EQ] = "u256Eq", [OP_TO_U256] = "toU256", [OP_TO_NAT] = "toNat",
   [OP_NAT_DIV] = "natDiv", [OP_NAT_MOD] = "natMod", [OP_HASH] = "hash", [OP_ECRECOVER] = "ecrecover",
   [OP_EC_ADD] = "ecAdd", [OP_EC_MUL] = "ecMul", [OP_EC_PAIRING] = "ecPairing", [OP_ADDR_TO_U256] = "addrToU256",
   [OP_ADDR_EQ] = "addrEq", [OP_PROJ] = "?", [OP_KMAP] = "Map", [OP_KMAP_OF] = "mapOf",
@@ -57,7 +57,7 @@ static const unsigned char OP_ARITY[] = {
   [OP_PAYLOAD] = 1, [OP_NAT_ADD] = 2, [OP_NAT_SUB] = 2,
   [OP_NAT_EQ] = 2, [OP_NAT_LE] = 2, [OP_FLAG_IF] = 3, [OP_U256_ADD] = 2,
   [OP_U256_SUB] = 2, [OP_U256_LE] = 2,
-  [OP_U256_EQ] = 2, [OP_TO_U256] = 1, [OP_ADDR_EQ] = 2,
+  [OP_U256_EQ] = 2, [OP_TO_U256] = 1, [OP_TO_NAT] = 1, [OP_ADDR_EQ] = 2,
   [OP_NAT_DIV] = 2, [OP_NAT_MOD] = 2, [OP_HASH] = 2, [OP_ECRECOVER] = 4,
   [OP_EC_ADD] = 2, [OP_EC_MUL] = 2, [OP_EC_PAIRING] = 1, [OP_ADDR_TO_U256] = 1,
   [OP_PROJ] = 1, [OP_KMAP] = 2, [OP_KMAP_OF] = VARIES, [OP_KMAP_GET] = 3, [OP_KMAP_SET] = 4,
@@ -1360,6 +1360,15 @@ static const Value *to_u256(Machine *m, const Value *const *a, uint32_t n) {
   return word_value(m, &r);
 }
 
+/* toNat x (restrict-lang S7, Q-S7-4 (a)): the Nat of x (uint64 on the ABI).
+   A value above 18446744073709551615 traps: no truncation, no wrapping. */
+static const Value *to_nat(Machine *m, const Value *const *a, uint32_t n) {
+  const Value *out;
+  if (!word_args(m, OP_TO_NAT, VAL_WORD, a, n, &out))
+    return out;
+  return (a[0]->word->limb[1] | a[0]->word->limb[2] | a[0]->word->limb[3]) != 0 ? overflow(m) : val_nat(m, a[0]->word->limb[0]);
+}
+
 /* The 32 big-endian bytes of X at OUT (limb 3 is the most significant). */
 static void word_bytes(const U256 *x, unsigned char *out) {
   for (uint32_t i = 0; i < 32u; i++)
@@ -2616,6 +2625,7 @@ static const Value *transp_data(Machine *m, const Value *head, const Value *line
   case OP_U256_LE:
   case OP_U256_EQ:
   case OP_TO_U256:
+  case OP_TO_NAT:
   case OP_ADDR_EQ:
   case OP_NAT_DIV:
   case OP_NAT_MOD:
@@ -3611,6 +3621,8 @@ static const Value *reduce_op(Machine *m, Op op, uint32_t inst, uint32_t field, 
     return word_test(m, op, a, n);
   case OP_TO_U256:
     return to_u256(m, a, n);
+  case OP_TO_NAT:
+    return to_nat(m, a, n);
   case OP_NAT_DIV:
   case OP_NAT_MOD:
     return nat_divmod(m, op, a, n);

@@ -1,0 +1,22 @@
+-- Env.self (S7 s2, Q-S7-6 (a)): the contract address (EVM ADDRESS, 0x30) of
+-- a call. `langc run` takes it from the env line `env SELF` of a script.
+-- Without that line, the address is 0x0. This is the form of resolve-lang
+-- S7 (examples/chains.lang) without the chain id.
+state State := makeState (seenSelf : Addr)
+def init : State := makeState 0x0000000000000000000000000000000000000000
+
+-- The Env of a call at the receiver address of test/evmchain.sh.
+def probe : Env := makeEnv 0 0u 0x00000000000000000000000000000000000000bb 0x0000000000000000000000007265636569766572
+
+-- The eval rows: the address of probe, as a Nat test.
+def selfIs : Nat -> Flag := fun (n : Nat) => u256Eq (addrToU256 (self probe)) (toU256 n)
+
+-- Entry: store the contract address of the call.
+def stamp : (env : Env) -> (s : State) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) => some (pair (makeState (self env)) nil)
+
+-- Entry: revert (none) when the call is not at the address A (the domain
+-- check of Q-S7-6).
+def onlyAt : (env : Env) -> (s : State) -> (a : Addr) -> Option (Prod State (List Out)) :=
+  fun (env : Env) (s : State) (a : Addr) =>
+    flagIf (addrEq (self env) a) (some (pair s nil)) none

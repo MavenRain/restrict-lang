@@ -22,6 +22,9 @@ def lawLeNo : Path Flag (u256Le wMax 0u) flagNo := refl
 def lawEq : Path Flag (u256Eq wMax wMaxHex) flagYes := refl
 def lawEqNo : Path Flag (u256Eq wMax 0u) flagNo := refl
 def lawToU256 : Path U256 (toU256 18446744073709551615) 0xffffffffffffffffu := refl
+def lawToNatZero : Path Nat (toNat 0u) 0 := refl
+def lawToNatMax : Path Nat (toNat 18446744073709551615u) 18446744073709551615 := refl
+def lawToNatBack : Path U256 (toU256 (toNat 0xffffffffffffffffu)) 0xffffffffffffffffu := refl
 def lawAddrSame : Path Flag (addrEq wOwner 0x00000000000000000000000000000000000000ff) flagYes := refl
 def lawAddrTop : Path Flag (addrEq wOwner wTopOnly) flagNo := refl
 def lawAddrLow : Path Flag (addrEq wOwner wLowOnly) flagNo := refl
@@ -29,3 +32,12 @@ def lawAddrLow : Path Flag (addrEq wOwner wLowOnly) flagNo := refl
 -- Entries: a trap goes up through u256Le and u256Eq.
 def addTrap : Nat -> Flag := fun (n : Nat) => u256Le (u256Add wMax (toU256 n)) wMax
 def eqTrap : Nat -> Flag := fun (n : Nat) => u256Eq (u256Add wMax (toU256 n)) wMax
+
+-- restrict-lang S7 (Q-S7-4 (a)): toNat x is the Nat of x (uint64 on the
+-- ABI). A value above 18446744073709551615 traps: no truncation, no wrapping.
+def natZero : Nat := toNat 0u
+def natMax : Nat := toNat 18446744073709551615u
+def natOver : Nat := toNat 18446744073709551616u
+def natTop : Nat := toNat wMax
+-- 2^192: only the top limb is not zero, and toNat traps.
+def natHigh : Nat := toNat 0x1000000000000000000000000000000000000000000000000u

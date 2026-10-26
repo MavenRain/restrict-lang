@@ -445,6 +445,19 @@ static const IrExpr *lower_if_value(Low *l, Stmts *b, const Value *v) {
   return push(l, b, s) ? ir_local(l, local) : NULL;
 }
 
+/* toNat x (Q-S7-4 (a)): one local := x, then an IF whose false arm traps when
+   x > 2^64 - 1 (a revert, no truncation). The value is the local. */
+static const IrExpr *lower_to_nat(Low *l, Stmts *b, const Value *v) {
+  uint32_t local = l->locals++;
+  Stmts arms[2] = {{NULL, 0, 0, b}, {NULL, 0, 0, b}};
+  IrStmt *s = push_set(l, b, local, lower_expr(l, b, v->args[0])) ? new_stmt(l, IR_STMT_IF) : NULL;
+  if (s == NULL || !push(l, &arms[1], new_stmt(l, IR_STMT_TRAP))) return NULL;
+  s->expr = ir_binary(l, IR_OP_LE, ir_local(l, local), ir_const(l, UINT64_MAX));
+  s->body = block_of(&arms[0]);
+  s->otherwise = block_of(&arms[1]);
+  return s->expr != NULL && push(l, b, s) ? ir_local(l, local) : NULL;
+}
+
 /* The eager IR cannot carry a trapped accumulator into the next iteration.
    It is sound when no computation can trap, or when F cannot discard a trap. */
 static int expr_may_trap(const IrExpr *e) {
@@ -620,11 +633,14 @@ static const IrExpr *lower_expr(Low *l, Stmts *b, const Value *v) {
   if (field_of(v, 1u, &f) && form_at(l, f) == FORM_WORD) return ir_sload(l, ir_const(l, f));
   if (field_of(v, 0u, &f) && l->env != NULL && f < l->env->field_count) {
     const char *name = l->env->fields[f].name;
-    IrExpr *e = strcmp(name, "now") == 0 || strcmp(name, "caller") == 0 ? new_expr(l, IR_EXPR_ENV) : NULL;
-    if (e != NULL) e->field = strcmp(name, "now") == 0 ? IR_ENV_NOW : IR_ENV_CALLER;
-    return e != NULL ? e : (refuse(l, v, "(an Env field that is not now or caller)"), NULL);
+    int now = strcmp(name, "now") == 0, block = strcmp(name, "block") == 0;
+    int self = strcmp(name, "self") == 0;
+    IrExpr *e = now || block || self || strcmp(name, "caller") == 0 ? new_expr(l, IR_EXPR_ENV) : NULL;
+    if (e != NULL) e->field = now ? IR_ENV_NOW : block ? IR_ENV_BLOCK : self ? IR_ENV_SELF : IR_ENV_CALLER;
+    return e != NULL ? e : (refuse(l, v, "(an Env field that is not now, block, caller or self)"), NULL);
   }
   if (is_op(v, OP_TO_U256) && v->argc == 1) return lower_expr(l, b, v->args[0]);
+  if (is_op(v, OP_TO_NAT) && v->argc == 1) return lower_to_nat(l, b, v);
   if (is_op(v, OP_ADDR_TO_U256) && v->argc == 1) return lower_expr(l, b, v->args[0]);
   if ((is_op(v, OP_ECRECOVER) || is_op(v, OP_EC_PAIRING)) && v->argc >= 1) return ir_load(l, lower_curve(l, b, v), 0);
   if ((is_op(v, OP_FIRST) || is_op(v, OP_SECOND)) && v->argc == 1 && is_curve(v->args[0]))

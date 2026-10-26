@@ -34,7 +34,7 @@ lg() { echo "$topic,$(pad "$1"),$(pad "$2") $(pad "$3")"; }
 # line, or empty for no LOG).
 check() {
   rows=$((rows + 1))
-  if ! step 0 "0x$2" "$3"; then
+  if ! step 0 0u "0x$2" "$3"; then
     echo "FAIL mock $1: evm: $(head -n 1 "$tmp/dump")"
     fail=$((fail + 1))
     return

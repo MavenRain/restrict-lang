@@ -75,13 +75,13 @@ Slice K3a adds the contract types to the checker and the evaluator. Slice K3b ad
 The contract prelude is in `src/front/contract.c`. The front end loads it after `domain/domain.lang` and before the program. Its names are core names, thus a program cannot declare them again.
 
 ```
-family Env := makeEnv (now : Nat) (caller : Addr)
+family Env := makeEnv (now : Nat) (block : U256) (caller : Addr) (self : Addr)
 family Out := pay (payToken : Addr) (payTo : Addr) (payAmount : U256)
   | pull (pullToken : Addr) (pullFrom : Addr) (pullTo : Addr) (pullAmount : U256)
   | emit (emitTag : Nat) (emitFields : List U256)
 ```
 
-- `Env` gives the time of the call (`now`) and the address of the caller (`caller`).
+- `Env` gives the time of the call (`now`), the block number of the call (`block`, O17), the address of the caller (`caller`), and the contract address (`self`).
 - `Out` is one effect of an entry. `pay` sends tokens to an address. `pull` moves tokens from an address. `emit` writes an event.
 - `emit` stays in slice K4a1. A program can also declare named events (refer to `## Events (slice K4a1)`).
 - Slice K4c writes a LOG only for a named event, thus `emit` has no EVM form. `langc build` refuses an entry that makes an `emit` (REFUSE_LOWER, `test/lower/emit.lang`). `langc check`, `langc eval` and `langc run` keep `emit`.
@@ -128,10 +128,10 @@ Why the rule is sound: each state in an entry comes from the input state, or fro
 `langc run PROG SCRIPT` checks the program `PROG`, gets the start state from `init`, and then does the calls in `SCRIPT` in sequence. Each line of a script is one call:
 
 ```
-NOW CALLER NAME ARGS...
+NOW BLOCK CALLER NAME ARGS...
 ```
 
-- `NOW` is a `Nat` literal. `CALLER` is an `Addr` literal: `0x` and 40 hex digits. The call gets `makeEnv NOW CALLER` as `env` and the current state as `s`.
+- `NOW` is a `Nat` literal. `BLOCK` is a `U256` literal (for example `100u`). `CALLER` is an `Addr` literal: `0x` and 40 hex digits. The call gets `makeEnv NOW BLOCK CALLER SELF` as `env` and the current state as `s`. An optional `env SELF` line before the first call sets `SELF`; without it, `SELF` is the zero address.
 - `NAME` is an entry or a view. A helper or an unknown name is not a call.
 - Each argument has the literal form of its parameter type: `Nat` (for example `7`), `Flag` (`0` or `1`), `U256` (decimal digits or `0x` and 1 or more hex digits, then `u`, for example `5u` or `0xffu`) or `Addr`. Upper case and lower case hex digits are both correct.
 - Spaces, tabs and carriage returns separate the words.
@@ -165,7 +165,7 @@ The exit codes of `langc run`:
 - 0: the run did all the calls in the script.
 - 1: a check refusal or a script error. The run stops at the first bad line. The output lines of the calls before it stay on stdout.
   - `RUN_INIT`: the program has no state, it has no `def init : State`, or `init` has a trap.
-  - `RUN_SCRIPT`: a line has fewer than 3 words, a bad `NOW` or `CALLER`, or a NUL byte. The message gives `SCRIPT:LINE`.
+  - `RUN_SCRIPT`: a line has fewer than 4 words, a bad `NOW`, `BLOCK` or `CALLER`, or a NUL byte. The message gives `SCRIPT:LINE`.
   - `EVAL_ENTRY`: `NAME` is not an entry or a view.
   - `EVAL_FUEL`, `EVAL_DEPTH` and `EVAL_PRINT` stop the run, as in `langc eval`.
 - 2: a usage error, an `IO` error for the script, or `EVAL_ARGS` (a bad argument or an incorrect number of arguments), as in `langc eval`.
@@ -246,7 +246,7 @@ Decode (slice K4b):
 
 Entry body (slice K4b):
 
-- `now` is the TIMESTAMP of the block and `caller` is CALLER, the sender of the call.
+- `now` is the TIMESTAMP of the block, `block` is NUMBER, the number of the block (S10, O17), and `caller` is CALLER, the sender of the call.
 - `none` reverts with empty data.
 - A trap reverts with the 4 bytes of the `Trap()` selector, `0xae96083a`.
 - `some (pair STATE OUT)` writes each changed word field and each Map write with SSTORE. Then the block stops (STOP).
@@ -279,7 +279,9 @@ The other refusals of `langc build` (exit 1, no output):
 
 `test/dispatch.sh` builds `examples/residuals.lang` and does 20 calls with geth `evm run`: empty call data, a short selector, an unknown selector, a call value (and a control call with no value), `none`, a trap, a caller that is not the owner, short call data, dirty Nat bits, Nat 2^64 - 1, dirty Addr bits (bit 160), a dirty Flag word (the value 2), a control call with an Addr and a Flag argument, and the storage after three entries. The selectors and the Map slots come from the SHA3 op of `evm`, not from `langc`.
 
-`test/evm.sh` is the chain test (the helpers are in `test/evmchain.sh`). It deploys `test/contract-nocall.lang` (C-K4d-5), `examples/map.lang`, `examples/residuals.lang`, `examples/events.lang`, `examples/lists.lang` and `test/same-state.lang` with `evm run --create`. Then it does one `evm run --prestate --dump` step for each call of `test/run/basic.script`, `test/run/map.script`, `test/run/residuals.script`, `test/run/events.script`, `test/run/lists.script` and `test/same-state.script` (43 steps). The entry `ping` of `test/same-state.lang` keeps the state and emits one event: after a `ping` step the storage must not change, and the step must have one LOG1 (O-d7-1). `test/run/basic.script` runs on `test/contract-nocall.lang` and not on `examples/contract.lang` (C-K4d-5): this test has no code at the token 0x..ee, thus the CALLs of `deposit` and `withdraw` revert (C-K4-14), while `langc run` says ok. The block TIMESTAMP of a step is `NOW` (the prestate timestamp) and the sender is `CALLER`. After each step, the storage must equal the state that `langc run` prints for the calls up to that step. The result must agree with the result of the call: ok, revert (`none`) or trap. A view call must return the 32-byte word of the value that `langc run` prints for the view. The logs of each step (`evm run --debug`) must equal the events that `langc run` prints for the call: one LOG1 for each event, in order, with topic 0 and the data words. The selectors come from the SHA3 op of `evm`. The argument types come from the `def` line of the entry.
+`test/evm.sh` is the chain test (the helpers are in `test/evmchain.sh`). It deploys `test/contract-nocall.lang` (C-K4d-5), `examples/map.lang`, `examples/residuals.lang`, `examples/events.lang`, `examples/lists.lang`, `test/same-state.lang`, `examples/blocks.lang`, `examples/daokit.lang` and `examples/selfenv.lang` with `evm run --create`. Then it checks each call of `test/run/basic.script`, `test/run/map.script`, `test/run/residuals.script`, `test/run/events.script`, `test/run/lists.script`, `test/same-state.script`, `test/run/blocks.script`, `test/run/daokit.script` and `test/run/selfenv.script` (62 steps) with `evm run` or, at numbered blocks, `evm t8n`. The entry `ping` of `test/same-state.lang` keeps the state and emits one event: after a `ping` step the storage must not change, and the step must have one LOG1 (O-d7-1). `test/run/basic.script` runs on `test/contract-nocall.lang` and not on `examples/contract.lang` (C-K4d-5): this test has no code at the token 0x..ee, thus the CALLs of `deposit` and `withdraw` revert (C-K4-14), while `langc run` says ok. The block TIMESTAMP of a step is `NOW` (the prestate timestamp) and the sender is `CALLER`. `BLOCK` is not in the prestate: evm 1.14.12 stops with the panic `can't commit genesis block with number > 0` when the genesis number is more than 0, and `evm run` has no flag for the block number. Thus NUMBER is 0 in an `evm run` step. The call of `test/run/blocks.script` (NOW 1, BLOCK 42, from the address of the t8n secret key) is an `evm t8n` step with `currentNumber` BLOCK (S10, O36): the test sets `numbered=1` for this chain, and the trace summary gives the result and the receipt gives the logs. The chain of `test/run/daokit.script` (S10, 15 calls) sets `numbered=1` too: its calls at BLOCK 11 run on `evm t8n` from the key address, and its calls at BLOCK 0 on `evm run`. After each step, the storage must equal the state that `langc run` prints for the calls up to that step. The result must agree with the result of the call: ok, revert (`none`) or trap. A view call must return the 32-byte word of the value that `langc run` prints for the view. The logs of each step (`evm run --debug`) must equal the events that `langc run` prints for the call: one LOG1 for each event, in order, with topic 0 and the data words. The selectors come from the SHA3 op of `evm`. The argument types come from the `def` line of the entry.
+
+`test/dao.sh` is the chain test of the DAO contract `examples/daokit.lang` (S10). It reads the words at run time from `build/ballottool dao` and `build/ballottool words`. It prints `dao size rows` (the runtime and initcode bytes against EIP-170 and EIP-3860; a size over a limit is a FAIL row) and `dao gas rows` (printed, not checked), and runs 33 steps: the casts of 3 voters, the revert rows of the used null, the slot flags, castEnd and the opening, enact, and the tally and window views. The last line is `dao chain: 33 steps, 0 failures`. It sets `numbered=1`, so the steps at BLOCK 11 run on `evm t8n` from the key address. docs/VALIDATION.md, "The contract (S10)", gives the steps and the gas table.
 
 `test/mock.sh` is the test of the mock ERC-20 token (C-K4d-3) for the K4d differential test. `build/asmtool mock` writes the runtime of the token (182 bytes). The word in storage slot 0 sets the mode: 0 moves the amount and returns the word 1, 1 returns the word 0 and does not move the amount, 2 moves the amount and returns no data, and other values revert. The balance of an address is at the slot equal to the address word. There is no allowance check. Each move writes one LOG3 `Transfer(from, to)` with the amount as the data word. An unknown selector reverts. The test does 13 `evm run --prestate --dump` steps: `transfer` and `transferFrom` in each mode, a transfer to the same address, a balance that wraps, an unknown selector and a token address with no code. For each step, the result, the storage and the logs must equal the expected rows.
 
@@ -331,7 +333,7 @@ Erasure: a point constructor value lowers as a family value lowers. A path const
 
 ## Commands
 
-- `make check`: the tcc build with `-Wall -Werror`, the clang syntax pass, `test/gate.sh`, `test/run.sh`, `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/precompile.sh`, `test/mock.sh` and `test/diff.sh`. `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/precompile.sh`, `test/mock.sh` and `test/diff.sh` need geth `evm` on PATH.
+- `make check`: the tcc build with `-Wall -Werror`, the clang syntax pass, `test/gate.sh`, `test/run.sh`, `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/precompile.sh`, `test/mock.sh`, `test/dao.sh` and `test/diff.sh`. `test/asm.sh`, `test/build.sh`, `test/dispatch.sh`, `test/evm.sh`, `test/precompile.sh`, `test/mock.sh`, `test/dao.sh` and `test/diff.sh` need geth `evm` on PATH.
 - `build/langc [--kit] check FILE` and `build/langc [--kit] eval FILE NAME [ARGS...]`: as in tcc-wasm.
 - `build/langc --kit run PROG SCRIPT`: does the calls in `SCRIPT` on the program `PROG`. Refer to `## Contracts (slice K3)`. `test/run.sh` runs each `test/run/NAME.script` on `examples/contract.lang` and compares the output with `test/run/NAME.out`. It also has 8 refusal rows and a usage row. `build/runtool` checks fresh fuel for initialization and call classification.
 - `build/langc --kit build FILE [-o OUT] [--runtime]` writes the creation code (with `--runtime`, the runtime code: the dispatcher and the entry blocks) as one line of lowercase hex. Refer to `## EVM output (slice K4)`.

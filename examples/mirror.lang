@@ -129,7 +129,8 @@ def lockOf : (env : Env) -> (s : State) -> (a : Addr) -> Nat :=
 def alice : Addr := 0x00000000000000000000000000000000000000aa
 def bob : Addr := 0x00000000000000000000000000000000000000bb
 def carol : Addr := 0x00000000000000000000000000000000000000cc
-def e0 : Env := makeEnv 100 testToken
+def selfAddr : Addr := 0x00000000000000000000000000000000000000c0
+def e0 : Env := makeEnv 100 100u testToken selfAddr
 def s1 : State := step init e0 (mint alice 5u)
 def s2 : State := step s1 e0 (mint bob 3u)
 
@@ -147,5 +148,5 @@ def burnPartial : Path U256 (holders (step s2 e0 (burn bob 1u))) 2u := refl
 def classFull : Path U256 (mapGet (holdersIn (step s2 e0 (transfer alice bob 5u))) 0u) 1u := refl
 def balMoved : Path U256 (mapGet (bal (step s2 e0 (transfer alice bob 2u))) bob) 5u := refl
 def lockSet : Path Nat (mapGet (lockEnd s1) alice) 86500 := refl
-def lockLater : Path Nat (mapGet (lockEnd (step s1 (makeEnv 50 testToken) (mint alice 1u))) alice) 86500 := refl
+def lockLater : Path Nat (mapGet (lockEnd (step s1 (makeEnv 50 50u testToken selfAddr) (mint alice 1u))) alice) 86500 := refl
 def lockNoTransferIn : Path Nat (mapGet (lockEnd (step s2 e0 (transfer alice carol 2u))) carol) 0 := refl

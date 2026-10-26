@@ -193,6 +193,7 @@ static const Builtin BUILTINS[] = {
   {"u256Le", 2, RULE_U256_2, OP_U256_LE, OP_FLAG, 0, VIS_INTERNAL},
   {"u256Eq", 2, RULE_U256_2, OP_U256_EQ, OP_FLAG, 0, VIS_INTERNAL},
   {"toU256", 1, RULE_TO_U256, OP_TO_U256, OP_U256, 0, VIS_INTERNAL},
+  {"toNat", 1, RULE_U256_2, OP_TO_NAT, OP_NAT, 0, VIS_INTERNAL},
   {"addrEq", 2, RULE_ADDR2, OP_ADDR_EQ, OP_FLAG, 0, VIS_INTERNAL},
   {"flagIf", 3, RULE_FLAG_IF, OP_FLAG_IF, OP_FLAG, 0, VIS_INTERNAL},
   {"Map", 2, RULE_KMAP, OP_KMAP, OP_NAT, 0, VIS_INTERNAL},
@@ -4584,10 +4585,22 @@ static void rules_dec(Text *t, const Decl *d, size_t i) {
     text_add(t, ")");
 }
 
+/* The bit of the rules of D: the Flag tests in a right-nested flagIf, with
+   no either over a Dec, so K4c lowers it (restrict-lang S7, Q-S7-2 (a)). */
+static void rules_bit(Text *t, const Decl *d) {
+  size_t j;
+  for (j = 0; j + 1u < d->ctor_count; j++)
+    text_add(t, "flagIf (%s .s .e .m) (", d->ctors[j].name);
+  text_add(t, "%s .s .e .m", d->ctors[d->ctor_count - 1u].name);
+  for (j = 0; j + 1u < d->ctor_count; j++)
+    text_add(t, ") flagNo");
+}
+
 /* The elaboration of `rules R S M T := r1 | ... | rk` (restrict-lang S4,
    PLAN section 13): the helpers, then for each rule R.rule.ri.holds and
-   R.rule.ri.dec, then the product R, its dec term R.dec, the bit R.bit and
-   the view canTransfer (L1: the first bit of R.dec). The per-rule names
+   R.rule.ri.dec, then the product R, its dec term R.dec, the bit R.bit (the
+   flagIf of the tests; the L1 rows tie it to the first bit of R.dec, S7)
+   and the view canTransfer. The per-rule names
    cannot collide with helpers, even when ri is a qualified name.
    Generated binders start with `.`, so they never capture a user name. */
 static void rules_text(Text *t, const Decl *d) {
@@ -4606,7 +4619,9 @@ static void rules_text(Text *t, const Decl *d) {
   rules_prod(t, d, 0u);
   text_add(t, "\ndef %s.dec : (.s : %s) -> (.e : Env) -> (.m : %s) -> %s.Dec (%s .s .e .m) :=\n  fun (.s : %s) (.e : Env) (.m : %s) => ", rn, sn, mn, rn, rn, sn, mn);
   rules_dec(t, d, 0u);
-  text_add(t, "\ndef %s.bit : %s -> Env -> %s -> Flag := fun (.s : %s) (.e : Env) (.m : %s) => %s.bitOf (%s .s .e .m) (%s.dec .s .e .m)\n", rn, sn, mn, sn, mn, rn, rn, rn);
+  text_add(t, "\ndef %s.bit : %s -> Env -> %s -> Flag := fun (.s : %s) (.e : Env) (.m : %s) => ", rn, sn, mn, sn, mn);
+  rules_bit(t, d);
+  text_add(t, "\n");
   text_add(t, "def canTransfer : (env : Env) -> (s : %s) -> (f t : Addr) -> (x : U256) -> Flag :=\n  fun (.env : Env) (.s : %s) (.f : Addr) (.t : Addr) (.x : U256) => %s.bit .s .env (%s .f .t .x)\n", sn, sn, rn, tn);
 }
 
@@ -4959,7 +4974,8 @@ typedef struct {
 } RunCall;
 
 /* A run: the script path, the prelude families, the calls so far, the
-   current state and a print buffer of PRINT_MAX bytes. */
+   current state, a print buffer of PRINT_MAX bytes, and the contract
+   address of the env line (S7 s2, Q-S7-6). */
 typedef struct {
   const char *path;
   uint32_t env;
@@ -4967,6 +4983,7 @@ typedef struct {
   uint32_t calls;
   const Value *state;
   char *buf;
+  U256 self;   /* the contract address of each call: the env line, else 0 */
 } Run;
 
 static uint32_t find_family(const Machine *m, const char *name) {
@@ -5029,37 +5046,56 @@ static int print_value(Machine *m, const Value *v, char *buf) {
   return value_print(m, NULL, 0, v, buf, PRINT_MAX) ? 1 : diag_fail(m->diag, "EVAL_PRINT", m->def, "the normal form exceeds the printer limits");
 }
 
-static const Value *make_env(Machine *m, const Run *r, uint64_t now, const U256 *caller) {
-  const Value **args = arena_alloc(m->arena, 2u * sizeof *args);
-  if (args == NULL) {
+static const Value *make_env(Machine *m, const Run *r, uint64_t now, const U256 *block, const U256 *caller) {
+  const Value **args = arena_alloc(m->arena, 4u * sizeof *args);
+  U256 *self = arena_alloc(m->arena, sizeof *self);
+  if (args == NULL || self == NULL) {
     diag_fail(m->diag, "OOM", m->def, "out of memory");
     return NULL;
   }
+  memcpy(self, &r->self, sizeof *self);
   args[0] = val_nat(m, now);
-  args[1] = val_word(m, WORD_ADDR, caller);
-  return args[0] == NULL || args[1] == NULL ? NULL : val_op(m, VAL_OP, OP_CTOR, m->families[r->env].first_ctor, 0, args, 2u);
+  args[1] = val_word(m, WORD_U256, block);
+  args[2] = val_word(m, WORD_ADDR, caller);
+  args[3] = val_word(m, WORD_ADDR, self);
+  return args[0] == NULL || args[1] == NULL || args[2] == NULL || args[3] == NULL ? NULL : val_op(m, VAL_OP, OP_CTOR, m->families[r->env].first_ctor, 0, args, 4u);
 }
 
-/* One call `NOW CALLER NAME ARGS...` (D-6 to D-8). A trap is a revert: the
+/* The env line `env SELF` (S7 s2, Q-S7-6 (a), the resolve-lang S7 form
+   without CHAIN): the contract address of each call. It comes one time,
+   before the first call. Returns 0 or 1. */
+static int run_env(Machine *m, Run *r, uint32_t line, char *const *word, uint32_t count, int *seen) {
+  if (count != 2u || r->calls != 0u || *seen)
+    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: the env line is env SELF, one time, before the first call", r->path, line) + 1;
+  if (!parse_word(word[1], WORD_ADDR, &r->self))
+    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: SELF '%s' is not an Addr (0x and 40 hex digits)", r->path, line, word[1]) + 1;
+  *seen = 1;
+  return 0;
+}
+
+/* One call `NOW BLOCK CALLER NAME ARGS...` (D-6 to D-8, O17). A trap is a revert: the
    state does not change. Returns 0, 1, or 2 after EVAL_ARGS. */
 static int run_call(Machine *m, Run *r, uint32_t line, char *const *word, uint32_t count, FILE *out) {
   const Value *args[ENTRY_PARAMS_MAX];
+  U256 *block = arena_alloc(m->arena, sizeof *block);
   U256 *caller = arena_alloc(m->arena, sizeof *caller);
-  const char *name = count > 2u ? word[2] : "";
+  const char *name = count > 3u ? word[3] : "";
   uint64_t now = 0;
-  uint32_t d = count > 2u ? find_def(m, name) : NO_DEF;
+  uint32_t d = count > 3u ? find_def(m, name) : NO_DEF;
   RunCall call;
   Role role;
   const Value *v;
   uint32_t i;
-  if (caller == NULL)
+  if (block == NULL || caller == NULL)
     return diag_fail(m->diag, "OOM", NULL, "out of memory") + 1;
-  if (count < 3u)
-    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: a call is NOW CALLER NAME ARGS...", r->path, line) + 1;
+  if (count < 4u)
+    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: a call is NOW BLOCK CALLER NAME ARGS...", r->path, line) + 1;
   if (!parse_u64(word[0], &now))
     return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: NOW '%s' is not a Nat", r->path, line, word[0]) + 1;
-  if (!parse_word(word[1], WORD_ADDR, caller))
-    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: CALLER '%s' is not an Addr (0x and 40 hex digits)", r->path, line, word[1]) + 1;
+  if (!parse_word(word[1], WORD_U256, block))
+    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: BLOCK '%s' is not a U256 (for example 100u)", r->path, line, word[1]) + 1;
+  if (!parse_word(word[2], WORD_ADDR, caller))
+    return diag_fail(m->diag, "RUN_SCRIPT", NULL, "%s:%u: CALLER '%s' is not an Addr (0x and 40 hex digits)", r->path, line, word[2]) + 1;
   m->fuel = EVAL_FUEL_STEPS;
   m->def = name;
   if (d == NO_DEF)
@@ -5067,14 +5103,14 @@ static int run_call(Machine *m, Run *r, uint32_t line, char *const *word, uint32
   role = role_of(m, r, m->defs[d].type, &call);
   if (role == ROLE_HELPER)
     return diag_fail(m->diag, "EVAL_ENTRY", name, "%s:%u: a helper is not an entry or a view", r->path, line) + 1;
-  if (count - 3u != call.param_count)
-    return diag_fail(m->diag, "EVAL_ARGS", name, "%s:%u: the call takes %u arguments, found %u", r->path, line, call.param_count, count - 3u) + 2;
+  if (count - 4u != call.param_count)
+    return diag_fail(m->diag, "EVAL_ARGS", name, "%s:%u: the call takes %u arguments, found %u", r->path, line, call.param_count, count - 4u) + 2;
   for (i = 0; i < call.param_count; i++) {
-    args[i] = entry_arg(m, word[i + 3u], call.params[i]);
+    args[i] = entry_arg(m, word[i + 4u], call.params[i]);
     if (args[i] == NULL)
       return strcmp(m->diag->code != NULL ? m->diag->code : "", "EVAL_ARGS") == 0 ? 2 : 1;
   }
-  v = apply_value(m, apply_value(m, def_value(m, d), make_env(m, r, now, caller)), r->state);
+  v = apply_value(m, apply_value(m, def_value(m, d), make_env(m, r, now, block, caller)), r->state);
   for (i = 0; i < call.param_count; i++)
     v = apply_value(m, v, args[i]);
   if (v == NULL)
@@ -5126,11 +5162,12 @@ static uint32_t split_words(char *line, char **word, uint32_t cap) {
 }
 
 int run_command(Machine *m, const char *path, const char *text, size_t len, FILE *out) {
-  char *word[ENTRY_PARAMS_MAX + 3u];
+  char *word[ENTRY_PARAMS_MAX + 4u];
   uint32_t init = find_def(m, "init");
   uint32_t line = 0;
   size_t pos = 0;
   int status = 0;
+  int seen = 0;
   Run r;
   memset(&r, 0, sizeof r);
   r.path = path;
@@ -5162,9 +5199,9 @@ int run_command(Machine *m, const char *path, const char *text, size_t len, FILE
     memcpy(copy, text + pos, end - pos);
     copy[end - pos] = '\0';
     line++;
-    count = split_words(copy, word, ENTRY_PARAMS_MAX + 3u);
+    count = split_words(copy, word, ENTRY_PARAMS_MAX + 4u);
     if (count != 0u && strncmp(word[0], "--", 2) != 0)
-      status = run_call(m, &r, line, word, count, out);
+      status = strcmp(word[0], "env") == 0 ? run_env(m, &r, line, word, count, &seen) : run_call(m, &r, line, word, count, out);
     pos = end + 1u;
   }
   if (status != 0)

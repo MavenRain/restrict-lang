@@ -196,11 +196,11 @@ def lockOf : (env : Env) -> (s : State) -> (a : Addr) -> Nat :=
   fun (env : Env) (s : State) (a : Addr) => mapGet (lockEnd s) a
 
 -- Part C (docs/PLAN.md sections 3.4 and 14). Q-S5-2 (a): the contract word
--- comes from the constant self until the writer of S7. Q-S6-4 (a): an
+-- comes from the constant selfAddr until the writer of S7. Q-S6-4 (a): an
 -- issuer is an address that the state map issuers holds. Q-S6-2 (a): the
 -- length of a registration in seconds is the state word pRegD.
-def self : Addr := 0x00000000000000000000000000000000000000c0
-def selfWord : U256 := addrToU256 self
+def selfAddr : Addr := 0x00000000000000000000000000000000000000c0
+def selfWord : U256 := addrToU256 selfAddr
 
 -- Q-S5-4 (a): two key slots for each class. Slot i of class c has the key
 -- c + c + i (the kit has no u256Mul).
@@ -284,7 +284,9 @@ def setPass : State -> U256 -> Flag -> State :=
 def alice : Addr := 0x00000000000000000000000000000000000000aa
 def bob : Addr := 0x00000000000000000000000000000000000000bb
 def carol : Addr := 0x00000000000000000000000000000000000000cc
-def e0 : Env := makeEnv 100 testToken
+def e0 : Env := makeEnv 100 100u testToken selfAddr
+-- Q-S7-6 (a): the Env word self of e0 is the contract word.
+def selfEnvIs : Path U256 (addrToU256 (self e0)) selfWord := refl
 def s1 : State := step init e0 (mint alice 5u)
 def s2 : State := step s1 e0 (mint bob 3u)
 
@@ -302,12 +304,12 @@ def burnPartial : Path U256 (holders (step s2 e0 (burn bob 1u))) 2u := refl
 def classFull : Path U256 (mapGet (holdersIn (step s2 e0 (transfer alice bob 5u))) 0u) 1u := refl
 def balMoved : Path U256 (mapGet (bal (step s2 e0 (transfer alice bob 2u))) bob) 5u := refl
 def lockSet : Path Nat (mapGet (lockEnd s1) alice) 86500 := refl
-def lockLater : Path Nat (mapGet (lockEnd (step s1 (makeEnv 50 testToken) (mint alice 1u))) alice) 86500 := refl
+def lockLater : Path Nat (mapGet (lockEnd (step s1 (makeEnv 50 50u testToken selfAddr) (mint alice 1u))) alice) 86500 := refl
 def lockNoTransferIn : Path Nat (mapGet (lockEnd (step s2 e0 (transfer alice carol 2u))) carol) 0 := refl
 
 -- Part R laws by refl (docs/PLAN.md section 8). e1 is the lock end of alice
 -- and bob (86500), so the lock-up passes there.
-def e1 : Env := makeEnv 86500 testToken
+def e1 : Env := makeEnv 86500 86500u testToken selfAddr
 def s3 : State := step s2 e1 (transfer alice bob 5u)
 def s4 : State := step s2 e1 (mint carol 1u)
 def dave : Addr := 0x00000000000000000000000000000000000000dd
@@ -324,6 +326,14 @@ def bitNoCap : Path Flag (canTransfer e1 s2 alice carol 2u)
   (both (holderCap s2 e1 (transfer alice carol 2u)) (both (classCap s2 e1 (transfer alice carol 2u))
     (both (countryIn s2 e1 (transfer alice carol 2u)) (lockUp s2 e1 (transfer alice carol 2u))))) := refl
 def bitIsYes : Path Flag (canTransfer e1 s2 alice bob 2u) flagYes := refl
+-- L1 (Q-S7-2 (a)): allowed.bit is the flagIf of the tests, and it is the
+-- first bit of allowed.dec.
+def bitDecYes : Path Flag (allowed.bit s2 e1 (transfer alice bob 2u))
+  (allowed.bitOf (allowed s2 e1 (transfer alice bob 2u)) (allowed.dec s2 e1 (transfer alice bob 2u))) := refl
+def bitDecNo : Path Flag (allowed.bit s4 e1 (transfer alice dave 1u))
+  (allowed.bitOf (allowed s4 e1 (transfer alice dave 1u)) (allowed.dec s4 e1 (transfer alice dave 1u))) := refl
+def bitDecNoCap : Path Flag (allowed.bit s2 e1 (transfer alice carol 2u))
+  (allowed.bitOf (allowed s2 e1 (transfer alice carol 2u)) (allowed.dec s2 e1 (transfer alice carol 2u))) := refl
 
 -- rules-cap (L3, L6): a full cap refuses a new holder and lets a move to a
 -- holder pass. A partial move keeps the count. A full move lowers it, so a
@@ -343,10 +353,10 @@ def classCapHolder : Path Flag (classCap s4 e1 (transfer alice carol 1u)) flagYe
 def countryZero : Path Flag (countryIn s2 e1 (transfer alice dave 1u)) flagYes := refl
 
 -- rules-lock (L4): now == lockEnd - 1 gives no, now == lockEnd gives yes.
-def lockBefore : Path Flag (lockUp s2 (makeEnv 86499 testToken) (transfer alice bob 2u)) flagNo := refl
-def lockBeforeView : Path Flag (canTransfer (makeEnv 86499 testToken) s2 alice bob 2u) flagNo := refl
-def lockAt : Path Flag (lockUp s2 (makeEnv 86500 testToken) (transfer alice bob 2u)) flagYes := refl
-def lockAtView : Path Flag (canTransfer (makeEnv 86500 testToken) s2 alice bob 2u) flagYes := refl
+def lockBefore : Path Flag (lockUp s2 (makeEnv 86499 86499u testToken selfAddr) (transfer alice bob 2u)) flagNo := refl
+def lockBeforeView : Path Flag (canTransfer (makeEnv 86499 86499u testToken selfAddr) s2 alice bob 2u) flagNo := refl
+def lockAt : Path Flag (lockUp s2 (makeEnv 86500 86500u testToken selfAddr) (transfer alice bob 2u)) flagYes := refl
+def lockAtView : Path Flag (canTransfer (makeEnv 86500 86500u testToken selfAddr) s2 alice bob 2u) flagYes := refl
 def lockNoSender : Path Flag (lockUp s2 e0 (mint carol 1u)) flagYes := refl
 
 -- Part C laws by refl (docs/PLAN.md section 8). The issuer issuer0 puts the keys of
@@ -357,10 +367,10 @@ def k0 : Prod U256 U256 := ecMul gen (zkKey 0)
 def k1 : Prod U256 U256 := ecMul gen (zkKey 1)
 def k2 : Prod U256 U256 := ecMul gen (zkKey 2)
 def erin : Addr := 0x0000000000000000000000000000000000000099
-def eI : Env := makeEnv 100 issuer0
-def eD : Env := makeEnv 100 dave
-def eE : Env := makeEnv 100 erin
-def eA : Env := makeEnv 100 alice
+def eI : Env := makeEnv 100 100u issuer0 selfAddr
+def eD : Env := makeEnv 100 100u dave selfAddr
+def eE : Env := makeEnv 100 100u erin selfAddr
+def eA : Env := makeEnv 100 100u alice selfAddr
 def r1 : State := setKey (setKey (setKey s2 (slot 1u 0u) (first k0) (second k0)) (slot 1u 1u) (first k1) (second k1)) (slot 0u 0u) (first k2) (second k2)
 
 -- issue: the issuer only, and slots 0 and 1 only.
@@ -403,11 +413,11 @@ def sigA0 : List U256 := zkSignAt (ring r1 0u) (zkKey 2) selfWord (addrToU256 al
 def sigR : List U256 := zkSignAt (ring r2 1u) (zkKey 1) selfWord (addrToU256 dave)
 def holderMoves : Path Flag (regOk r1 eA 1u sigA1 (first img1) (second img1)) flagNo := refl
 def holderStays : Path Flag (regOk r1 eA 0u sigA0 (first img2) (second img2)) flagYes := refl
-def renewDave : Path Flag (regOk r2 (makeEnv 200 dave) 1u sigR (first img1) (second img1)) flagYes := refl
+def renewDave : Path Flag (regOk r2 (makeEnv 200 200u dave selfAddr) 1u sigR (first img1) (second img1)) flagYes := refl
 
 -- L8: the registration of dave ends at 100 + regD.
-def l8Live : Path Flag (isVerified (makeEnv 31536099 dave) r2 dave) flagYes := refl
-def l8End : Path Flag (isVerified (makeEnv 31536100 dave) r2 dave) flagNo := refl
+def l8Live : Path Flag (isVerified (makeEnv 31536099 31536099u dave selfAddr) r2 dave) flagYes := refl
+def l8End : Path Flag (isVerified (makeEnv 31536100 31536100u dave selfAddr) r2 dave) flagNo := refl
 def l8None : Path Flag (isVerified e0 r2 erin) flagNo := refl
 
 -- L2 (Q-S5-3 (a)): two countries of one class get one class and one answer.
@@ -448,8 +458,8 @@ def lockNew : Path Nat (mapGet (lockEnd (step (setLockD init 10) e0 (mint alice 
 -- pRegD = 10, so the registration ends at 110.
 def r3 : State := regSet (setRegD r1 10) eD 1u (first img0) (second img0)
 def regNewEnd : Path Nat (mapGet (expires r3) dave) 110 := refl
-def regNewLive : Path Flag (isVerified (makeEnv 109 dave) r3 dave) flagYes := refl
-def regNewGone : Path Flag (isVerified (makeEnv 110 dave) r3 dave) flagNo := refl
+def regNewLive : Path Flag (isVerified (makeEnv 109 109u dave selfAddr) r3 dave) flagYes := refl
+def regNewGone : Path Flag (isVerified (makeEnv 110 110u dave selfAddr) r3 dave) flagNo := refl
 
 -- A removed issuer cannot issue. An added issuer can. The keys of a removed
 -- issuer stay in the rings (O10).

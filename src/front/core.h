@@ -65,6 +65,7 @@ typedef enum {
   OP_U256_LE,
   OP_U256_EQ,
   OP_TO_U256,
+  OP_TO_NAT, /* toNat x: the Nat of x; traps above 2^64 - 1 (restrict-lang S7, Q-S7-4 (a)) */
   OP_ADDR_EQ,
   /* sealed-lang S2 (R14, R16 to R18, R20): the base span. The curve ops
      ECRECOVER, EC_ADD, EC_MUL and EC_PAIRING are opaque in the evaluator

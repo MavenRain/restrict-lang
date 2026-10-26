@@ -1,7 +1,7 @@
 #!/bin/sh
 # The chain gate (slice K4c, O-s11-1). For each call script below, deploy the
 # program with `evm run --create`, then do one `evm run --prestate --dump`
-# step for each call of the script. After each step, the storage must equal
+# step for each call of the script (a t8n step at BLOCK > 0 for blocks.script and daokit.script, S10). After each step, the storage must equal
 # the state that `langc run` prints for the calls up to that step, and the
 # result must agree with the result of the call: ok, revert (`none`) or trap
 # (the Trap() selector). A view call must return the 32-byte word of the view
@@ -40,15 +40,22 @@ chain() {
     fail=$((fail + 1))
     return
   fi
-  awk 'NF && $1 != "--"' "$_script" >"$tmp/calls"
+  # The env line of a script (S7 s2, Q-S7-6 (a)) must give the receiver address.
+  awk 'NF && $1 == "env"' "$_script" >"$tmp/header"
+  if [ -s "$tmp/header" ] && [ "$(cat "$tmp/header")" != "env 0x$receiver" ]; then
+    echo "FAIL evm $_script: the env line is not env 0x$receiver"
+    fail=$((fail + 1))
+    return
+  fi
+  awk 'NF && $1 != "--" && $1 != "env"' "$_script" >"$tmp/calls"
   _calls=$(awk 'END { print NR }' "$tmp/calls")
   _k=0
   while [ "$_k" -lt "$_calls" ]; do
     _k=$((_k + 1))
-    awk -v k="$_k" 'NR <= k' "$tmp/calls" >"$tmp/prefix"
+    { cat "$tmp/header"; awk -v k="$_k" 'NR <= k' "$tmp/calls"; } >"$tmp/prefix"
     set -- $(awk -v k="$_k" 'NR == k' "$tmp/calls")
-    _now=$1 _caller=$2 _name=$3
-    shift 3
+    _now=$1 _block=$2 _caller=$3 _name=$4
+    shift 4
     steps=$((steps + 1))
     if ! build/langc --kit run "$_prog" "$tmp/prefix" >"$tmp/run" 2>"$tmp/err"; then
       echo "FAIL evm $_script:$_k: langc run: $(head -n 1 "$tmp/err")"
@@ -65,7 +72,7 @@ chain() {
     esac
     want "$(awk '$1 == "state" { sub(/^state /, ""); print }' "$tmp/run")"
     _input=$(input "$_prog" "$_name" "$@")
-    if ! step "$_now" "$_caller" "$_input"; then
+    if ! step "$_now" "$_block" "$_caller" "$_input"; then
       echo "FAIL evm $_script:$_k $_name: evm: $(head -n 1 "$tmp/dump")"
       fail=$((fail + 1))
       return
@@ -128,6 +135,16 @@ chain examples/events.lang test/run/events.script
 chain examples/lists.lang test/run/lists.script
 # test/same-state.lang: the entry ping keeps the state and emits one LOG1 (O-d7-1).
 chain test/same-state.lang test/same-state.script
+# test/run/blocks.script (S10, O36): its call is at NOW 1 and BLOCK 42 from the
+# t8n key address, a t8n step at NUMBER 42. test/run/daokit.script (S10 b6): the
+# DAO casts at BLOCK 0, the late castSeal and enact at BLOCK 11 (t8n steps).
+numbered=1
+chain examples/blocks.lang test/run/blocks.script
+chain examples/daokit.lang test/run/daokit.script
+numbered=0
+# test/run/selfenv.script (S7 s2, Q-S7-6 (a)): its env line gives the receiver
+# address, the ADDRESS of each step.
+chain examples/selfenv.lang test/run/selfenv.script
 
 rm -rf "$tmp"
 echo "evm steps: $steps checked"
