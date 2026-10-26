@@ -125,6 +125,7 @@ check: build/langc build/asmtool build/fronttool build/blsagtool build/elgamalto
 	sh test/precompile.sh
 	sh test/mock.sh
 	sh test/dao.sh
+	sh test/restrict.sh
 	sh test/diff.sh
 	sh test/review.sh
 	build/fronttool

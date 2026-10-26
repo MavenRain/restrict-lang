@@ -1,0 +1,6 @@
+-- REFUSE_LOWER (S7 s3, Q-S7-14 (e1)): H_p of a stuck flagIf of two points. lower_hp wants a point of two words; the flagIf is not one.
+state State := makeState (n : U256)
+def init : State := makeState 0u
+
+def hpStuck : (env : Env) -> (s : State) -> (i w : U256) -> U256 :=
+  fun (env : Env) (s : State) (i w : U256) => first (zkHpAt (flagIf (u256Le i 1u) (pair i i) (pair 1u 2u)) w)

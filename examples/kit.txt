@@ -38,3 +38,4 @@ ballot.lang
 blocks.lang
 daokit.lang
 selfenv.lang
+restrictkit.lang

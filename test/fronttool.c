@@ -269,6 +269,11 @@ static int rules_regressions(void) {
 
 int main(void) {
   int ok = 1;
+  ok &= domain("def f : (p : Prod U256 U256) -> (w : U256) -> Flag := "
+    "fun (p : Prod U256 U256) (w : U256) => "
+    "zkVerifyAt (cons p nil) w 0u (cons 0u (cons 0u (cons 1u (cons 2u nil))))\n"
+    "def same : (p : Prod U256 U256) -> (w : U256) -> Path Flag (f p w) (f p w) := "
+    "fun (p : Prod U256 U256) (w : U256) => refl\n", NULL);
   ok &= rules_regressions();
   ok &= prove_output(0, 1, NULL);
   ok &= prove_output(1, 1, NULL);

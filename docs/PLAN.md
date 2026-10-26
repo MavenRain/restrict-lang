@@ -426,6 +426,26 @@ S7 notes (Q-S7-6 (a)):
   row `selfEnvIs : Path U256 (addrToU256 (self e0)) selfWord := refl` ties
   the Env field to the constant.
 
+S7 s3 notes (Q-S7-12 (a), Q-S7-13 (a), Q-S7-14 (e1)):
+
+- `examples/restrictkit.lang` (new, in `examples/kit.txt`) is
+  the kit form of the rules. `selfWord := addrToU256 (self env)`.
+- `hpAt k w c` is yes when the x word of H_p (k, w) is the hash of the
+  counter c. `hpOk k w` is yes when a counter below K = 8 gives it.
+- `issue (c i kx ky hc : U256)` checks `u256Le i 1u`, `u256Le hc 7u` and
+  `hpAt (pair kx ky) (selfWord env) hc`. Each issued point has an H_p
+  counter below K. `register` also checks the bound for an empty slot
+  at the current `selfWord`, so accepted registrations use the same H_p
+  in closed eval and on the chain (Q-S7-13 (a)).
+- The test keys at the chain word 0x7265636569766572 (Q-S7-12 (a)): zkKey
+  13 (counter 0), zkKey 2 (counter 5), zkKey 18 (counter 7), the empty
+  slot (0, 0) (counter 7), and zkKey 1 (counter 11, no point below K).
+- Rows after `hpOkR`: the Path rows hpC0Is, hpC1Is, hpC2Is, hpCZIs,
+  hpCRIs, hpOkRNo, and the law rows hpAtC0, hpAtC1, hpAtC2, hpAtC1Below,
+  hpOkK0, hpOkK2. The rows issueBadCounter and issueNoPoint give `none`.
+- When no counter below K gives a point, eval gives no (the issue row is
+  `none`) and the H_p loop on the chain traps. Both make `issue` fail.
+
 ## 4. Readings of the design on Cubical TT
 
 ### 4.1 "State those rules as types"
@@ -637,6 +657,44 @@ removes it). S7 notes:
   115 lines). A second session wrote over the s2 step0 log (116 lines),
   so it is not a base.
 
+S7 s3 (DONE, 2026-10-26) notes (Q-S7-10 to Q-S7-14):
+
+- The open zkHpAt (session 6): `zk_hp_term` in `eval.c` keeps the closed
+  branch (the host H_p). An open point gives the opaque term `OP_ZK_HP`
+  (one argument) or `OP_ZK_HP_AT` (two arguments), and `lower.c` lowers it.
+- `OP_MODEXP` (core.h, Q-S7-10 (a)) is internal, with no surface name.
+  Eval computes b^e mod p. `lower.c` sends it through IR_STMT_PRECOMPILE
+  at address 0x05.
+- `src/front/blsag.h` defines `RESTRICT_HP_TRIES` (K = 8u, Q-S7-12 (a)).
+- `lower_hp` (Q-S7-14 (e1)) lowers an open H_p to a loop: the locals x, x
+  + 1, found and c; IR_STMT_REPEAT K times: when found is 0, one try. A try
+  computes rhs = x^3 + 3 mod p (MODEXP), s = rhs^E with E = (p + 1) / 4,
+  and when x < p and s^2 = rhs, it sets x, y = min(s, p - s) and found :=
+  1. Then c := c + 1. After the loop, when found is 0, TRAP. The found
+  flag keeps the first counter that gives a point. The point is two
+  locals, because `evm.c` does not lower IR_STMT_ALLOC. A point that is
+  not two words is a refusal (REFUSE_LOWER, `test/lower/hp-point.lang`).
+- The size (Q-S7-11 (a)): `--kit build examples/restrictkit.lang
+  --runtime` is 15490 bytes after the review fixes, under 24576. Before
+  review it was 13277 bytes; the unrolled form was 112810 bytes.
+- Review fixes: verifier unrolling requires a complete list of point
+  pairs, preventing a checker crash on a neutral point. Open H_p validates
+  its input through ECADD with infinity before hashing it, matching the
+  closed evaluator's rejection of off-curve coordinates. C regressions
+  exercise the neutral-point proof and compare closed H_p with EVM execution.
+- An empty ring slot also needs an H_p counter below K. At self 0x100,
+  the generator needs counter 7 and the empty slot needs 23. `ringBound`
+  refuses registration with that partial ring; filling the second slot
+  with an admissible key restores service. The new Path rows cover both
+  outcomes. `hpHasCounter` shares one H_p value across the counter tests.
+- Chain rows: `test/precompile.sh` has 4 `hpX` rows at the word wC
+  (zkKey 13 G, (0, 0), zkKey 1 G gives `trap`, and zkKey 3 G). zkKey 3 G
+  has two counters below K, so its row kills a loop without the found
+  flag. `test/restrict.sh` (new, after `test/dao.sh` in `make check`) has
+  8 steps: issue with counters 0, 5 and 7, a bad counter, a key with no
+  point (trap), an issue from dave (revert), and register from dave (ok,
+  then revert).
+
 ## 7. The contract
 
 One contract for each program and each token. The names and the ABI types
@@ -700,7 +758,7 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S4 | Part R: the `rules` form (O4), `Dec`, `Allowed`, `canTransfer`; the four rule kinds; L1, L3, L4; the rows of section 8 | DONE (2026-10-24): the kit form `rules` in five src/front files (section 3.3, S4 notes); `examples/restrict.lang` (`mirror.lang` with Part R: four rule tests, one form, `Broken`; 23 more `refl` paths: L1 x5, rules-cap x13, rules-lock x5), `test/check/rules-no-dec.lang` (`TYPE_MISMATCH`, O5) and `test/run/restrict.script` (14 rows). `make -B check` EXIT 0. Three counters change from the S3 log: examples 50 -> 51 (`restrict.lang` in `examples/kit.txt`), check refusals 186 -> 187 (`rules-no-dec.lang`) and runs 6 -> 7 (`test/run/restrict.script`); all other lines are the S3 lines; 0 failures. Mutants: 7 (L1, L3 x2, L4, O5, `Broken`, `RULES_HELPERS 9u`), 6 KILLED, 1 SURVIVED (an equivalent mutant, section 3.3 S4 notes); the gate after the restore is byte for byte the S4 gate log |
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | DONE (2026-10-25): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt` (Q-S5-1 (a); the key image seed is hash(hash(P.x, P.y), w), and the old ops keep the same bytes) with the blsagtool context rows; `examples/restrict.lang` with Part C (section 3.4, S5 notes; 26 more `refl` paths: L2, L7, L8, the issue, register and class rows) and `test/run/restrict.script` (9 more rows). `make -B check` EXIT 0. No counter changes: the log is byte for byte the S5 step0 log, because S5 adds no example file and no run script, and the blsagtool context rows print no new line; 0 failures. Mutants: 6 (L2, L7, L8, the key image context, expiry, the class rule), 6 KILLED; the gate stops at the first failed step, so the second legs ran alone: M2 and M5 change run rows 20 and 21 (on the example without its `refl` rows, whose run output is `restrict.out`), and M4 fails three blsagtool context rows. The gate after the restore is byte for byte the S5 gate log |
 | S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S5 gate log (HEAD daa2cae, with the USER bLSAG nonce fix); probes p1 to p6 (section 15); docs only; the USER ruled Q-S6-1 to Q-S6-8 (a). s2 DONE (2026-10-25): the port of intent-lang 3df9d96 (Q-S6-1 (a)) with the ballot context hash(selfWord, pid) (Q-S6-7 (a)); in `examples/restrict.lang` the `Params` words, the issuer map, the class pass set and the setters (section 3.1, S6 notes); `examples/charter.lang` with the charter law and the regime rows (section 4.4). `make -B check` EXIT 0. The changes from the step0 log: examples 51 -> 54 (`tally.lang`, `ballot.lang` and `charter.lang`; `charter.lang` is a third new example, so +3, not +2 as Q-S6-1 said), check refusals 187 -> 188 (`tally-leak.lang`), evals 188 -> 203 (tally 6, ballot 9), precompile steps 143 -> 152 (the ballot steps), and three new lines: the `ballottool` build, its check-clang row and `ballot regressions: passed`; the run counts do not change; 0 failures. The base is the S6 s1 step0 log (`restrict-lang-S6-step0-gate.log`): the s2 step0 log has `precompile: 152 steps checked` at line 76, not 143, because the `test/precompile.sh` hunk went in while that gate ran. Mutants: 8 (holderCap reads 2u, `issue` ignores the issuer map, `setCapN` writes `pCapCN`, `tallyEnc` drops the head ballot, a tie passes in `decide`, the ballot ctx drops pid, `active` keeps the old rule set, `yn` passes on a tie), 8 KILLED; the tie and ctx mutants pass their checks and fail the eval rows `tally kept` and `ballot sigGood`. The gate after the restore is byte for byte the S6 gate log |
-| S7 | the contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), chain rows on the test token (Q13) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S6 gate log (HEAD 864849a, the USER S6 commit, with no fix); probes p1 to p7 (section 16): the writer refuses the kit file, the kit build refuses `either` (`canTransfer`, `step`) and `zkVerifyAt` over a state ring or a run-time context word; Q-S7-1 to Q-S7-9 OPEN at s1; docs only; then the USER ruled Q-S7-1 to Q-S7-9 (a). s2 DONE (2026-10-25): the base is USER 273914f, the s1 tree with a USER fix in this file (Nat is an ABI `uint64`; `toNat` accepts only values at most 18446744073709551615u, and a larger value traps in eval and reverts on the chain, Q-S7-4). The port of intent-lang S8 (`ef5abe8..c6636f1`) and S10 (`3df9d96..79e1898`; S6 had S9) (Q-S7-3 (a)): the `Env.block` prelude, `examples/blocks.lang`, `examples/daokit.lang`, `test/dao.sh` and the S10 kit code; `ballottool dao` signs the intent-lang form with no context word, and the S6 ballots do not change (section 6, S7 notes). The rules form builds `allowed.bit` from the rule bits (Q-S7-2 (a); section 3.3, S7 notes): the kit build of `examples/restrict.lang` now refuses `canTransfer` at the plain `mapGet` (the s3 kit maps), not at `either`. The kit op `toNat : U256 -> Nat` (Q-S7-4 (a)): eval traps above 2^64 - 1, and the lowering reverts (an IF with a TRAP arm); eval rows `natZero`, `natMax`, `natOver`, `natTop` and `natHigh` (2^192, limb 3 only); the chain rows are s4 work. The `Env` field `self : Addr` (Q-S7-6 (a)) lowers to ADDRESS (0x30), and a run script sets it with the line `env SELF` (section 6, S7 notes); the constant `self` is now `selfAddr` (rule R4; section 3.4, S7 notes), the 20 `makeEnv` sites get a fourth argument, and `examples/selfenv.lang` has the eval, run and chain rows. `examples/circle.lang` renames its `toNat` to `s1ToNat` (R4). `make -B check` EXIT 0, 120 lines. The changes from the s1 step0 log: the `ballottool` build and its check-clang row get `src/front/secp256k1.c` (lines 17 and 40); examples 54 -> 57 (`blocks.lang`, `daokit.lang`, `selfenv.lang`); evals 203 -> 221 (daokit 11, toNat 5, selfIs 2); runs 7 -> 10 (the `blocks`, `daokit` and `selfenv` scripts); run refusals 10 -> 15 (a bad BLOCK, four `env` rows); evm steps 43 -> 62 (16 S8 and S10 steps, 3 selfenv steps); five new lines: `sh test/dao.sh`, `dao size rows: runtime 16702 bytes (limit 24576), initcode 16737 bytes (limit 49152)`, `dao gas rows`, `dao chain: 33 steps, 0 failures` and `dao regressions: passed`; the two lowertool `to-nat` rows and the seven new `refl` rows print no new line; 0 failures. Mutants: 8 (the rules bit gives `flagYes`, `to_nat` tests `== 0`, `to_nat` does not test limb 3, `lower_to_nat` has no TRAP arm, `evm.c` emits CALLER for `self`, `lower.c` lowers `self` to CALLER, `run_env` takes an env line after a call, `run_env` takes a second env line), 8 KILLED; the limb-3 mutant fails only the eval row `natHigh`. The gate after the restore is byte for byte the s2 gate log. s3 NEXT |
+| S7 | the contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), chain rows on the test token (Q13) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S6 gate log (HEAD 864849a, the USER S6 commit, with no fix); probes p1 to p7 (section 16): the writer refuses the kit file, the kit build refuses `either` (`canTransfer`, `step`) and `zkVerifyAt` over a state ring or a run-time context word; Q-S7-1 to Q-S7-9 OPEN at s1; docs only; then the USER ruled Q-S7-1 to Q-S7-9 (a). s2 DONE (2026-10-25): the base is USER 273914f, the s1 tree with a USER fix in this file (Nat is an ABI `uint64`; `toNat` accepts only values at most 18446744073709551615u, and a larger value traps in eval and reverts on the chain, Q-S7-4). The port of intent-lang S8 (`ef5abe8..c6636f1`) and S10 (`3df9d96..79e1898`; S6 had S9) (Q-S7-3 (a)): the `Env.block` prelude, `examples/blocks.lang`, `examples/daokit.lang`, `test/dao.sh` and the S10 kit code; `ballottool dao` signs the intent-lang form with no context word, and the S6 ballots do not change (section 6, S7 notes). The rules form builds `allowed.bit` from the rule bits (Q-S7-2 (a); section 3.3, S7 notes): the kit build of `examples/restrict.lang` now refuses `canTransfer` at the plain `mapGet` (the s3 kit maps), not at `either`. The kit op `toNat : U256 -> Nat` (Q-S7-4 (a)): eval traps above 2^64 - 1, and the lowering reverts (an IF with a TRAP arm); eval rows `natZero`, `natMax`, `natOver`, `natTop` and `natHigh` (2^192, limb 3 only); the chain rows are s4 work. The `Env` field `self : Addr` (Q-S7-6 (a)) lowers to ADDRESS (0x30), and a run script sets it with the line `env SELF` (section 6, S7 notes); the constant `self` is now `selfAddr` (rule R4; section 3.4, S7 notes), the 20 `makeEnv` sites get a fourth argument, and `examples/selfenv.lang` has the eval, run and chain rows. `examples/circle.lang` renames its `toNat` to `s1ToNat` (R4). `make -B check` EXIT 0, 120 lines. The changes from the s1 step0 log: the `ballottool` build and its check-clang row get `src/front/secp256k1.c` (lines 17 and 40); examples 54 -> 57 (`blocks.lang`, `daokit.lang`, `selfenv.lang`); evals 203 -> 221 (daokit 11, toNat 5, selfIs 2); runs 7 -> 10 (the `blocks`, `daokit` and `selfenv` scripts); run refusals 10 -> 15 (a bad BLOCK, four `env` rows); evm steps 43 -> 62 (16 S8 and S10 steps, 3 selfenv steps); five new lines: `sh test/dao.sh`, `dao size rows: runtime 16702 bytes (limit 24576), initcode 16737 bytes (limit 49152)`, `dao gas rows`, `dao chain: 33 steps, 0 failures` and `dao regressions: passed`; the two lowertool `to-nat` rows and the seven new `refl` rows print no new line; 0 failures. Mutants: 8 (the rules bit gives `flagYes`, `to_nat` tests `== 0`, `to_nat` does not test limb 3, `lower_to_nat` has no TRAP arm, `evm.c` emits CALLER for `self`, `lower.c` lowers `self` to CALLER, `run_env` takes an env line after a call, `run_env` takes a second env line), 8 KILLED; the limb-3 mutant fails only the eval row `natHigh`. The gate after the restore is byte for byte the s2 gate log. s3 DONE (2026-10-26): the base is HEAD 46a8860. The USER ruled Q-S7-10 to Q-S7-13 (a) and Q-S7-14 (e1) (section 16; the Q-S7-12 counters and the Q-S7-14 counts are there). The open zkHpAt in eval (an opaque `OP_ZK_HP` or `OP_ZK_HP_AT` term), the internal op `OP_MODEXP` (precompile 0x05), and the H_p loop `lower_hp` with K = 8 (`RESTRICT_HP_TRIES`; a found flag stops the tries; two locals for the point) (section 6, S7 s3 notes). `examples/restrictkit.lang`: `issue` takes the counter hc as a fifth word and checks `hpAt` at `selfWord` (Q-S7-13 (a): each ring point of a reachable state has a counter below K, so the closed eval and the chain agree) (section 3.4, S7 s3 notes). Size before review: the kit runtime was 13277 bytes (issue 1135, register 4412); after the review fixes it is 15490 bytes, under 24576. The unrolled form was 112810 bytes. Tests: the kit rows of restrictkit.lang, 4 `hpX` rows in `test/precompile.sh`, the refusal `test/lower/hp-point.lang`, and `test/restrict.sh` (8 steps). `make -B check` serial EXIT 0. The changes from the s3 step0 log: examples 57 -> 58 (`restrictkit.lang`); lower refusals 16 -> 17 and checks 33 -> 34 (`hp-point.lang`); precompile steps 152 -> 156 (the 4 `hpX` rows); three new lines: `sh test/restrict.sh`, `restrict: 8 steps checked` and `restrict gate: 0 failures`; 0 failures. Mutants: 8 (the counter starts at 1, REPEAT K - 1, the last byte of E, the found flag never stops the tries, no TRAP after the loop, `issue` skips `hpAt`, `u256Le hc 8u`, `selfWord` reads `caller`): 7 KILLED, 1 equivalent. The found-flag mutant passed the first gate; a probe of `hpX` found keys with two counters below K (zkKey j G for j = 3, 4, 5, 10, 14, 15, 17, 30), and the new row zkKey 3 G kills it. The `issue` and `selfWord` mutants fail the kit check (`issueNoPoint`, `selfEnvIs`) before the chain leg. `u256Le hc 8u` is equivalent on the chain: the loop traps for each key with no counter below K, and no key j in 0 to 40 has a point at counter 8 in eval. The gate after the restores is byte for byte the item 6 gate log; the last gate differs from it only at `precompile: 155 -> 156 steps checked`. s4 NEXT: the `toNat` chain rows for the 4 USER values (0u, 18446744073709551615u, 18446744073709551616u, the largest U256: the first two succeed, the last two revert), the `lower_to_nat` IF mutants (arm swap, IR_OP_LE -> IR_OP_LT; only a chain row kills them), the DAO entries, the test token (Q-S7-7 (a) `asmtool token`), the ABI row (Q-S7-8 (a)) and the EIP-170 check of the full contract |
 | S8 | mutants, SPEC, VALIDATION, close | |
 
 ## 10. Open items
@@ -1354,3 +1412,109 @@ Questions (the builder default is (a) in each). The USER ruled all nine
   of Q-S7-5 (a). (a) Three build sessions, as resolve-lang Q-S7-4. A size
   over EIP-170 is a STOP and ask. (b) Two contracts (compliance and DAO).
   The kit CALL pays and pulls only (H:88). RULED: (a).
+- Q-S7-10 the MODEXP op (s3). (a) Within Q-S7-5 (a): one internal op
+  with no surface name. Eval computes it. lower.c sends it through the
+  IR_STMT_PRECOMPILE statement at address 0x05 (6 input words: 32, 32,
+  32, b, e, p; 1 output word). It also gives x^3 (MODEXP(x, 3, p)) and the
+  s^2 test (MODEXP(s, 2, p)). No MULMOD or ADDMOD op, and no new IR
+  statement kind. x^3 + 3 is u256Add (no overflow, because p < 2^254),
+  then a subtraction of p when the sum is at least p. RULED: (a) (USER
+  2026-10-25).
+- Q-S7-11 the size (s3). (a) As Q-S7-9 (a): build with the measured K,
+  record the size, and when the restrictkit runtime is over 24576 bytes,
+  STOP and ask. No word-term memo in lower.c, and no pair-selection
+  probe, without a new ruling. RULED: (a) (USER 2026-10-25).
+- Q-S7-12 the test keys and K (s3). The chain word is
+  0x7265636569766572 (the receiver address of test/evmchain.sh; the `env`
+  line of a call script gives the same `self`, thus the eval rows and the
+  chain rows have the same H_p counters). The counters at this word:
+  zkKey 0 = 29, 1 = 11, 2 = 5, 3 = 3, 4 = 3, 5 = 2, 6 = 4, 7 = 12, 8 = 1,
+  9 = 1, 10 = 2, 11 = 14, 12 = 23, 13 = 0, 14 = 3, 15 = 0, 16 = 2,
+  17 = 0, 18 = 7, 19 = 11, 20 = 11, 21 = 2, 22 = 6, 23 = 9, 24 = 14,
+  25 = 19, 26 = 9, 27 = 14, 28 = 1, 29 = 12, 30 = 0, 31 = 0; the empty
+  slot (0, 0) = 7. One try succeeds with a probability of about 0.095,
+  thus the mean counter is about 10. The size is about 3.5 kB plus about
+  1.4 kB for each unit of K (n = 2), thus K is at most about 14 under
+  24576 bytes. With zkKey 0, 1 and 2, K = 30 and the size is about 46 kB.
+  (a) restrictkit picks its test keys by their counters at the chain
+  word, with K = 8 (the empty slot needs K >= 8): zkKey 13 (counter 0,
+  it kills the mutant "the tries start at 1"), 2 (5) and 18 (7, it kills
+  the mutant "K - 1 for K"). The refusal row uses zkKey 1 (11 >= K). The
+  size is about 15 kB. The PLAN records the keys, the counters, K and the
+  size. examples/restrict.lang keeps zkKey 0, 1 and 2 at 0xc0 (its eval
+  rows do not change). (b) Keep zkKey 0, 1 and 2: K = 30 and the size is
+  over 24576 (a Q-S7-11 (a) STOP). (c) A smaller chain for each try (a
+  word-term memo in lower.c or a pair-selection probe). This needs a new
+  ruling, because Q-S7-11 (a) excludes it. RECOMMEND: (a). RULED: (a)
+  (USER 2026-10-25).
+- Q-S7-13 the closed eval path and K (s3). Q-S7-12 (a) sets K = 8. On the
+  chain, H_p of a run-time ring point reverts when no counter below K
+  gives a point. The closed eval path of zkVerifyAt (blsag_verify_at),
+  zkSignAt and zkHpAt uses the host H_p with 256 tries (BLSAG_HP_TRIES),
+  thus the eval accepts a ring that the chain refuses (zkKey 1 at the
+  chain word: counter 11). A bound K on the closed path changes S5 eval
+  rows: the ring of class 1 in examples/restrict.lang holds zkKey 0
+  (counter 21 at 0xc0), thus regDave, l7Verifies, renewDave and img0
+  trap. With K = 8, about 45 % of the keys have no H_p at a given word
+  (0.905^8). (a) Agreement on the reachable states: `issue` in
+  restrictkit refuses a key with no H_p counter below K at selfWord, thus
+  each ring point of a reachable state has a counter below K, and the
+  closed eval and the chain give the same H_p. An open zkHpAt (an open
+  point or word) reduces to the open chain of zk_hp_term (the same bound
+  K; today it is opaque and does not lower). The guest check in `issue`
+  is a fold over the counters c from 0 to K minus 1: u256Eq (first
+  (zkHpAt k selfWord)) (hash (hash (hash kx ky) selfWord) c). The eval
+  refuses with `none`, and the chain reverts in the open chain. No new
+  op, no new IR statement kind and no new precompile route. The size is
+  about 21 kB (an estimate: 15 kB plus a third chain). (b) A recorded
+  divergence, with no code change: the eval rows of restrictkit use keys
+  below K only, and the refusal of zkKey 1 is a chain row and a guest
+  counter row (counter 11, not below K). The eval accepts a ring that the
+  chain refuses (fail closed). (c) Bound the host H_p of the "at" ops at
+  K (blsag_hash_point_at), thus the eval and the chain agree on each
+  state, and move zkKey 0 in Part C of examples/restrict.lang to a key
+  with a counter below K at 0xc0 (zkKey 3 or 6: counter 0). The S5 row
+  verdicts stay, but the row text changes, and the keys of ballot.lang
+  at its proposal word are not measured. RECOMMEND: (a). RULED: (a)
+  (USER 2026-10-25).
+- Q-S7-14 the runtime size of restrictkit (s3). A Q-S7-11 (a) STOP: the
+  runtime of examples/restrictkit.lang is 112810 bytes (the limit is
+  24576). The counts come from a copy of the kit in $TMPDIR with the asm
+  limits raised and a byte count for each entry (src/ does not change;
+  the copy gives the same bytes as build/langc for the 15 kit files that
+  build). (A) The file: 112810 (issue 57678, register 47402, the other 12
+  entries and the dispatcher 7730). (B) issue with one chain use (hpAt
+  at 0u): 62585 (issue 7453). (C) No chain in issue: 55419 (issue 287).
+  (D) C without register: about 8006 (from the entry counts). At K = 1:
+  B is 17330 (issue 1244, register 8356) and C is 16373. Thus one try of
+  the open chain is about 887 bytes, one chain at K = 8 is about 7166
+  bytes, and register lowers about 6 chains (39046 bytes for 7 tries),
+  not 2: each use of a coordinate of an open H_p point lowers the chain
+  again (the memo gap of Q-S7-11). register alone is over the limit, thus
+  hpOk is not the only cause. (a) A word-term memo or a let in lower.c (a
+  new ruling: Q-S7-11 (a) excludes it): issue about 8 kB, register about
+  17.4 kB (2 chains), the total about 33 kB: over. (b) A counter word as
+  an argument of issue (an ABI change): issue 7453 (as B), the total
+  62585: over. A counter argument does not help register: the chain must
+  still refute each counter below it, or a key gets a second H_p point
+  and a second key image (L7). (c) Two contracts (Part C in a second
+  contract): the Part C contract is about 105 kB, or about 25.5 kB with
+  (a): over. (d) A lower K: K = 8 is the minimum for the test keys. K = 1
+  with new test keys (counter 0) gives 17330 (measured), but about 90 %
+  of the keys at a word then have no point (the Q-S7-13 figure: 0.905 for
+  each try). (e) The open chain as a loop: lower.c lowers zk_hp_term
+  through IR_STMT_REPEAT (K runs of one try body; a flag stops the tries
+  after a point; evm.c already lowers REPEAT), not as K unrolled tries.
+  This changes the Q-S7-5 (a) text ("an unrolled try and increment"), but
+  adds no IR statement kind and no op. A chain is then about one try
+  (about 1 kB) for each K. (e1) K = 8, and issue takes the counter c as a
+  fifth word (b): issue checks `u256Le c 7u` and the one term u256Eq
+  (first (zkHpAt k w)) (hash (hash (hash kx ky) w) c). The test keys, the
+  refusal row of zkKey 1 and the Q-S7-13 (a) argument stay. About 17.6 kB
+  (B at K = 1 plus the loop code). (e2) K = 256 (the host
+  BLSAG_HP_TRIES): the eval and the chain agree on each state, thus issue
+  drops hpOk, with no ABI change (Q-S7-12 (a) and Q-S7-13 (a) change).
+  About 16.6 kB (C at K = 1 plus the loop code). But no real key has no
+  point below 256, thus the refusal row goes, and a chain H_p can run 256
+  tries. The (e) sizes are estimates. RECOMMEND: (e1). RULED: (e1)
+  (USER 2026-10-25).

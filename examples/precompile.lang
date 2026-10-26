@@ -80,6 +80,11 @@ def leafStep : (env : Env) -> (s : State) -> (i : Nat) -> Nat :=
 def addrWord : (env : Env) -> (s : State) -> (a : Addr) -> U256 :=
   fun (env : Env) (s : State) (a : Addr) => addrToU256 a
 
+-- Q-S7-14 (e1): the x word of H_p of an open point. It lowers to the MODEXP
+-- loop (precompile 0x05) with K = 8 tries, and traps when no try gives a point.
+def hpX : (env : Env) -> (s : State) -> (kx ky w : U256) -> U256 :=
+  fun (env : Env) (s : State) (kx ky w : U256) => first (zkHpAt (pair kx ky) w)
+
 -- Closed terms for `langc eval`: hash computes (keccak256 of 64 zero bytes), the closed ecAdd computes (S8 B1), addrToU256 computes.
 def hashZero : U256 := hash 0u 0u
 

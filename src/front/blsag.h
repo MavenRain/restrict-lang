@@ -19,6 +19,9 @@
 /* H_p gives up after this many counters. Each counter succeeds with a chance
    near 0.4, so the bound is not reached. */
 #define BLSAG_HP_TRIES 256u
+/* The bound K of the open H_p chain on the chain (restrict-lang S7, Q-S7-5
+   (a)): the counters 0 to K minus 1 of the try and increment. */
+#define RESTRICT_HP_TRIES 8u
 
 /* The domain tag: the ASCII bytes of "orbit" as a word (builder default). */
 extern const U256 BLSAG_TAG;

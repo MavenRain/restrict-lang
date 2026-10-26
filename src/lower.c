@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "evm.h"
+#include "front/blsag.h"
 #include "front/check.h"
 #include "ir.h"
 #include "keccak.h"
@@ -532,6 +533,13 @@ static int is_curve(const Value *v) {
   return v != NULL && v->kind == VAL_STUCK && (v->op == OP_EC_ADD || v->op == OP_EC_MUL);
 }
 
+/* 1 when V is the STUCK value of an open zkHp or zkHpAt (restrict-lang S7,
+   Q-S7-14 (e1)): a G1 in the two locals x and x + 1 of the H_p loop. */
+static int is_hp(const Value *v) {
+  return v != NULL && v->kind == VAL_STUCK &&
+         ((v->op == OP_ZK_HP && v->argc == 1) || (v->op == OP_ZK_HP_AT && v->argc == 2));
+}
+
 /* 1 when STMT is in B or in a block that runs before B. */
 static int block_has(const Stmts *b, const IrStmt *stmt) {
   for (; b != NULL; b = b->up)
@@ -557,19 +565,25 @@ static int memo_add(Low *l, const Value *v, const IrStmt *stmt, uint32_t local) 
 }
 
 static const IrExpr *lower_curve(Low *l, Stmts *b, const Value *v);
+static const IrExpr *lower_hp(Low *l, Stmts *b, const Value *v);
 
 /* The words of a precompile argument (S2, R17): a pair gives the words of
-   its two parts, a curve value gives its two coordinates, a word gives
-   itself. A G2 is a pair of pairs, thus 4 words. */
+   its two parts, a curve value or an H_p value gives its two coordinates, a
+   word gives itself. A G2 is a pair of pairs, thus 4 words. */
 static size_t point_word_count(const Value *v) {
   if (is_op(v, OP_PAIR) && v->argc == 2) return point_word_count(v->args[0]) + point_word_count(v->args[1]);
-  return is_curve(v) ? 2u : 1u;
+  return is_curve(v) || is_hp(v) ? 2u : 1u;
 }
 
 static int lower_point_words(Low *l, Stmts *b, const Value *v, const IrExpr **out, size_t *n) {
   if (is_op(v, OP_PAIR) && v->argc == 2)
     return lower_point_words(l, b, v->args[0], out, n) && lower_point_words(l, b, v->args[1], out, n);
-  if (is_curve(v)) {
+  if (is_hp(v)) {
+    const IrExpr *x = lower_hp(l, b, v);
+    out[*n] = x;
+    out[*n + 1u] = x != NULL ? ir_local(l, x->local + 1u) : NULL;
+    *n += 2u;
+  } else if (is_curve(v)) {
     const IrExpr *block = lower_curve(l, b, v);
     out[*n] = ir_load(l, block, 0);
     out[*n + 1u] = ir_load(l, block, 1);
@@ -587,15 +601,17 @@ static int closed_list(const Value *v) {
 }
 
 /* The STUCK value V of a curve op (S2, R17): local := the output block of
-   one STATICCALL to the precompile (ecrecover 1, ecAdd 6, ecMul 7,
-   ecPairing 8). The input words are the words of the arguments; the
-   pairing list must be a closed list, 6 words per pair. One STATICCALL per
+   one STATICCALL to the precompile (ecrecover 1, modexp 5, ecAdd 6, ecMul
+   7, ecPairing 8). The input words are the words of the arguments; the
+   pairing list must be a closed list, 6 words per pair. Modexp (restrict-lang
+   S7, Q-S7-10 (a)) has the three sizes 32, 32, 32 first. One STATICCALL per
    value per entry: a second use in B, or in a block that runs after B,
    reads the first block. A use in the other arm of an IF gets its own call. */
 static const IrExpr *lower_curve(Low *l, Stmts *b, const Value *v) {
   const Value *list = v->op == OP_EC_PAIRING ? v->args[0] : NULL;
   uint32_t argc = list != NULL ? 0 : v->argc;
-  size_t count = 0, n = 0;
+  size_t lead = v->op == OP_MODEXP ? 3u : 0u;
+  size_t count = lead, n = 0;
   int ok = 1;
   for (size_t i = 0; i < l->memo_count; i++)
     if (l->memo[i].value == v && block_has(b, l->memo[i].stmt)) return ir_local(l, l->memo[i].local);
@@ -606,15 +622,127 @@ static const IrExpr *lower_curve(Low *l, Stmts *b, const Value *v) {
   const IrExpr **fields = count > 0 ? low_alloc(l, count * sizeof *fields) : NULL;
   IrStmt *s = count == 0 || fields != NULL ? new_stmt(l, IR_STMT_PRECOMPILE) : NULL;
   if (s == NULL) return NULL;
+  for (; ok && n < lead; n++) ok = (fields[n] = ir_const(l, 32)) != NULL;
   for (const Value *c = list; ok && is_op(c, OP_CONS); c = c->args[1]) ok = lower_point_words(l, b, c->args[0], fields, &n);
   for (uint32_t i = 0; ok && i < argc; i++) ok = lower_point_words(l, b, v->args[i], fields, &n);
   if (!ok) return NULL;
   s->local = l->locals++;
   s->fields = fields;
   s->field_count = count;
-  s->address = v->op == OP_ECRECOVER ? 1u : v->op == OP_EC_ADD ? 6u : v->op == OP_EC_MUL ? 7u : 8u;
+  s->address = v->op == OP_ECRECOVER ? 1u : v->op == OP_MODEXP ? 5u : v->op == OP_EC_ADD ? 6u : v->op == OP_EC_MUL ? 7u : 8u;
   s->out_count = is_curve(v) ? 2u : 1u;
   return push(l, b, s) && memo_add(l, v, s, s->local) ? ir_local(l, s->local) : NULL;
+}
+
+/* The BN254 base field p and the root exponent (p + 1) / 4 (p mod 4 = 3),
+   big-endian (restrict-lang S7, Q-S7-14 (e1)). */
+static const unsigned char HP_P[32] = {0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45,
+                                       0xb6, 0x81, 0x81, 0x58, 0x5d, 0x97, 0x81, 0x6a, 0x91, 0x68, 0x71,
+                                       0xca, 0x8d, 0x3c, 0x20, 0x8c, 0x16, 0xd8, 0x7c, 0xfd, 0x47};
+static const unsigned char HP_E[32] = {0x0c, 0x19, 0x13, 0x9c, 0xb8, 0x4c, 0x68, 0x0a, 0x6e, 0x14, 0x11,
+                                       0x6d, 0xa0, 0x60, 0x56, 0x17, 0x65, 0xe0, 0x5a, 0xa4, 0x5a, 0x1c,
+                                       0x72, 0xa3, 0x4f, 0x08, 0x23, 0x05, 0xb6, 0x1f, 0x3f, 0x52};
+
+/* The word constant at W. */
+static const IrExpr *ir_word(Low *l, const unsigned char *w) {
+  IrExpr *e = new_expr(l, IR_EXPR_WORD);
+  if (e != NULL) e->word = w;
+  return e;
+}
+
+/* B gets one STATICCALL to MODEXP 0x05 (Q-S7-10 (a)): the sizes 32, 32, 32,
+   then BASE, EXP and MOD. The value is word 0 of the output block. */
+static const IrExpr *ir_modexp(Low *l, Stmts *b, const IrExpr *base, const IrExpr *exp, const IrExpr *mod) {
+  const IrExpr **fields = base != NULL && exp != NULL && mod != NULL ? low_alloc(l, 6u * sizeof *fields) : NULL;
+  IrStmt *s = fields != NULL ? new_stmt(l, IR_STMT_PRECOMPILE) : NULL;
+  if (s == NULL) return NULL;
+  for (size_t i = 0; i < 3u; i++)
+    if ((fields[i] = ir_const(l, 32)) == NULL) return NULL;
+  fields[3] = base;
+  fields[4] = exp;
+  fields[5] = mod;
+  s->local = l->locals++;
+  s->fields = fields;
+  s->field_count = 6u;
+  s->address = 5u;
+  s->out_count = 1u;
+  return push(l, b, s) ? ir_load(l, ir_local(l, s->local), 0) : NULL;
+}
+
+/* The STUCK value V of an open zkHp P or zkHpAt P w (restrict-lang S7,
+   Q-S7-14 (e1)): the H_p loop of RESTRICT_HP_TRIES tries. The point is in
+   the two locals x and x + 1, not in a block, because evm.c does not lower
+   IR_STMT_ALLOC. seed = hash(px, py), then hash(seed, w) for zkHpAt. The try
+   c: x_c = hash(seed, c), rhs = (x_c^3 + 3) mod p and s = rhs^((p + 1) / 4)
+   by MODEXP 0x05. When x_c < p and s^2 = rhs: x := x_c, y := the smaller of
+   s and p - s, found := 1. The found flag stops the tries, thus the first
+   counter that passes wins. No counter below the bound gives a TRAP (a
+   revert). One loop per value per entry, as lower_curve. */
+static const IrExpr *lower_hp(Low *l, Stmts *b, const Value *v) {
+  const IrExpr *pt[2];
+  size_t n = 0;
+  for (size_t i = 0; i < l->memo_count; i++)
+    if (l->memo[i].value == v && block_has(b, l->memo[i].stmt)) return ir_local(l, l->memo[i].local);
+  if (point_word_count(v->args[0]) != 2u)
+    return refuse(l, v->args[0], "at an H_p position (want a point of two words)"), NULL;
+  if (!lower_point_words(l, b, v->args[0], pt, &n)) return NULL;
+  /* Match the closed evaluator's G1 validation before hashing the words.
+     ECADD with infinity preserves valid points and traps on invalid ones. */
+  const IrExpr **fields = low_alloc(l, 4u * sizeof *fields);
+  IrStmt *validate = fields != NULL ? new_stmt(l, IR_STMT_PRECOMPILE) : NULL;
+  if (validate == NULL) return NULL;
+  fields[0] = pt[0]; fields[1] = pt[1];
+  fields[2] = ir_const(l, 0); fields[3] = ir_const(l, 0);
+  validate->local = l->locals++;
+  validate->fields = fields;
+  validate->field_count = 4u;
+  validate->address = 6u;
+  validate->out_count = 2u;
+  if (fields[2] == NULL || fields[3] == NULL || !push(l, b, validate)) return NULL;
+  const IrExpr *seed = ir_set(l, b, ir_binary(l, IR_OP_KECCAK, pt[0], pt[1]));
+  if (seed != NULL && v->op == OP_ZK_HP_AT) seed = ir_set(l, b, ir_binary(l, IR_OP_KECCAK, seed, lower_expr(l, b, v->args[1])));
+  uint32_t x = l->locals, found = x + 2u, c = x + 3u;
+  l->locals += 4u;
+  if (seed == NULL || !push_set(l, b, c, ir_const(l, 0)) || !push_set(l, b, found, ir_const(l, 0)) ||
+      !push_set(l, b, x, ir_const(l, 0)) || !push_set(l, b, x + 1u, ir_const(l, 0)))
+    return NULL;
+  Stmts body = {NULL, 0, 0, b};
+  Stmts arms[2] = {{NULL, 0, 0, &body}, {NULL, 0, 0, &body}};
+  Stmts hit[2] = {{NULL, 0, 0, &arms[1]}, {NULL, 0, 0, &arms[1]}};
+  Stmts after[2] = {{NULL, 0, 0, b}, {NULL, 0, 0, b}};
+  const IrExpr *p = ir_word(l, HP_P);
+  const IrExpr *xk = ir_set(l, &arms[1], ir_binary(l, IR_OP_KECCAK, seed, ir_local(l, c)));
+  const IrExpr *cube = ir_modexp(l, &arms[1], xk, ir_const(l, 3), p);
+  const IrExpr *rhs = ir_set(l, &arms[1], ir_binary(l, IR_OP_MOD, ir_binary(l, IR_OP_WORD_ADD, cube, ir_const(l, 3)), p));
+  const IrExpr *s = ir_set(l, &arms[1], ir_modexp(l, &arms[1], rhs, ir_word(l, HP_E), p));
+  const IrExpr *ok = ir_binary(l, IR_OP_MIN, ir_binary(l, IR_OP_LT, xk, p),
+                               ir_binary(l, IR_OP_EQ, ir_modexp(l, &arms[1], s, ir_const(l, 2), p), rhs));
+  IrStmt *take = ok != NULL ? new_stmt(l, IR_STMT_IF) : NULL;
+  if (take == NULL || !push_set(l, &hit[0], x, xk) ||
+      !push_set(l, &hit[0], x + 1u, ir_binary(l, IR_OP_MIN, s, ir_binary(l, IR_OP_SUB, p, s))) ||
+      !push_set(l, &hit[0], found, ir_const(l, 1)))
+    return NULL;
+  take->expr = ok;
+  take->body = block_of(&hit[0]);
+  take->otherwise = block_of(&hit[1]);
+  if (!push(l, &arms[1], take) || !push_set(l, &arms[1], c, ir_binary(l, IR_OP_ADD, ir_local(l, c), ir_const(l, 1))))
+    return NULL;
+  IrStmt *gate = new_stmt(l, IR_STMT_IF);
+  if (gate == NULL) return NULL;
+  gate->expr = ir_local(l, found);
+  gate->body = block_of(&arms[0]);
+  gate->otherwise = block_of(&arms[1]);
+  IrStmt *loop = push(l, &body, gate) ? new_stmt(l, IR_STMT_REPEAT) : NULL;
+  if (loop == NULL) return NULL;
+  loop->counter = l->locals++;
+  loop->expr = ir_const(l, RESTRICT_HP_TRIES);
+  loop->body = block_of(&body);
+  IrStmt *end = push(l, b, loop) && push(l, &after[1], new_stmt(l, IR_STMT_TRAP)) ? new_stmt(l, IR_STMT_IF) : NULL;
+  if (end == NULL) return NULL;
+  end->expr = ir_local(l, found);
+  end->body = block_of(&after[0]);
+  end->otherwise = block_of(&after[1]);
+  return push(l, b, end) && memo_add(l, v, end, x) ? ir_local(l, x) : NULL;
 }
 
 static const IrExpr *lower_expr(Low *l, Stmts *b, const Value *v) {
@@ -642,7 +770,11 @@ static const IrExpr *lower_expr(Low *l, Stmts *b, const Value *v) {
   if (is_op(v, OP_TO_U256) && v->argc == 1) return lower_expr(l, b, v->args[0]);
   if (is_op(v, OP_TO_NAT) && v->argc == 1) return lower_to_nat(l, b, v);
   if (is_op(v, OP_ADDR_TO_U256) && v->argc == 1) return lower_expr(l, b, v->args[0]);
-  if ((is_op(v, OP_ECRECOVER) || is_op(v, OP_EC_PAIRING)) && v->argc >= 1) return ir_load(l, lower_curve(l, b, v), 0);
+  if ((is_op(v, OP_ECRECOVER) || is_op(v, OP_EC_PAIRING) || is_op(v, OP_MODEXP)) && v->argc >= 1) return ir_load(l, lower_curve(l, b, v), 0);
+  if ((is_op(v, OP_FIRST) || is_op(v, OP_SECOND)) && v->argc == 1 && is_hp(v->args[0])) {
+    const IrExpr *x = lower_hp(l, b, v->args[0]);
+    return x != NULL ? ir_local(l, x->local + (uint32_t)is_op(v, OP_SECOND)) : NULL;
+  }
   if ((is_op(v, OP_FIRST) || is_op(v, OP_SECOND)) && v->argc == 1 && is_curve(v->args[0]))
     return ir_load(l, lower_curve(l, b, v->args[0]), (uint32_t)is_op(v, OP_SECOND));
   if (is_op(v, OP_KMAP_GET) && v->argc == 3 && field_of(v->args[1], 1u, &f) && form_at(l, f) == FORM_MAP) {

@@ -34,7 +34,7 @@ static const char *const OP_NAMES[] = {
   [OP_KMAP_GET] = "mapGet", [OP_KMAP_SET] = "mapSet",
   [OP_ZK_HP] = "zkHp", [OP_ZK_KEY] = "zkKey", [OP_ZK_DIGEST] = "zkDigest",
   [OP_ZK_SIGN] = "zkSign", [OP_ZK_VERIFY] = "zkVerify",
-  [OP_ZK_HP_AT] = "zkHpAt", [OP_ZK_SIGN_AT] = "zkSignAt", [OP_ZK_VERIFY_AT] = "zkVerifyAt",
+  [OP_ZK_HP_AT] = "zkHpAt", [OP_ZK_SIGN_AT] = "zkSignAt", [OP_ZK_VERIFY_AT] = "zkVerifyAt", [OP_MODEXP] = "modexp",
   [OP_ZK_BALLOT] = "ZkBallot", [OP_ZK_WITNESS] = "ZkWitness", [OP_ZK_CAST] = "zkCast",
   [OP_ZK_PROVE] = "zkProve", [OP_ZK_PROJECT] = "zkProject", [OP_ZK_CHECK] = "zkCheck",
   [OP_INTERVAL] = "I", [OP_TRANSP] = "transp",
@@ -62,7 +62,7 @@ static const unsigned char OP_ARITY[] = {
   [OP_EC_ADD] = 2, [OP_EC_MUL] = 2, [OP_EC_PAIRING] = 1, [OP_ADDR_TO_U256] = 1,
   [OP_PROJ] = 1, [OP_KMAP] = 2, [OP_KMAP_OF] = VARIES, [OP_KMAP_GET] = 3, [OP_KMAP_SET] = 4,
   [OP_ZK_HP] = 1, [OP_ZK_KEY] = 1, [OP_ZK_DIGEST] = 1, [OP_ZK_SIGN] = 4, [OP_ZK_VERIFY] = 4,
-  [OP_ZK_HP_AT] = 2, [OP_ZK_SIGN_AT] = 4, [OP_ZK_VERIFY_AT] = 4,
+  [OP_ZK_HP_AT] = 2, [OP_ZK_SIGN_AT] = 4, [OP_ZK_VERIFY_AT] = 4, [OP_MODEXP] = 3,
   [OP_ZK_BALLOT] = 1, [OP_ZK_WITNESS] = 0, [OP_ZK_CAST] = 4, [OP_ZK_PROVE] = 1, [OP_ZK_PROJECT] = 2, [OP_ZK_CHECK] = 4,
   [OP_INTERVAL] = 0, [OP_TRANSP] = 3,
   [OP_SYSTEM] = VARIES, [OP_HCOMP] = 4, [OP_FIN] = 1, [OP_FIN_ADD] = 3,
@@ -1412,6 +1412,37 @@ static const Value *opaque(Machine *m, Op op, const Value *const *a, uint32_t n)
   return val_op(m, VAL_STUCK, op, 0, 0, a, n);
 }
 
+/* The modulus F as a word. */
+static void modulus_value(U256 *out, const Modulus *f) {
+  for (uint32_t i = 0; i < 4u; i++)
+    out->limb[i] = (uint64_t)f->w[2u * i] | ((uint64_t)f->w[2u * i + 1u] << 32);
+}
+
+/* MODEXP b e p (restrict-lang S7, Q-S7-10 (a)): b^e mod p, as the 0x05
+   precompile with 32-byte sizes. Internal, no surface name: only the open
+   H_p chain of zkVerifyAt makes it, with p the BN254 p. An open word keeps
+   the application stuck (opaque), so the lowerer emits the STATICCALL to
+   0x05. */
+static const Value *mod_exp(Machine *m, const Value *const *a, uint32_t n) {
+  U256 p;
+  U256 b;
+  Fe x;
+  Fe r;
+  if (a[0]->kind != VAL_WORD || a[1]->kind != VAL_WORD || a[2]->kind != VAL_WORD)
+    return opaque(m, OP_MODEXP, a, n);
+  modulus_value(&p, &BN254_FP);
+  if (u256_cmp(a[2]->word, &p) != 0)
+    return internal(m, "a MODEXP modulus that is not the BN254 p");
+  b = *a[0]->word;
+  while (u256_cmp(&b, &p) >= 0)
+    u256_sub(&b, &b, &p);
+  if (!fe_from_u256(&x, &b, &BN254_FP))
+    return internal(m, "a MODEXP base at or above p");
+  fe_pow(&r, &x, a[1]->word, &BN254_FP);
+  fe_to_u256(&b, &r);
+  return word_value(m, &b);
+}
+
 /* 1 when V is a closed G1: a pair of two words. */
 static int closed_point(const Value *v) {
   return val_is(v, OP_PAIR) && v->args[0]->kind == VAL_WORD && v->args[1]->kind == VAL_WORD;
@@ -1553,7 +1584,12 @@ static const Value *zk_hp(Machine *m, const Value *const *a, uint32_t n) {
   return make(m, VAL_OP, OP_PAIR, 0, 2, word_value(m, &x), word_value(m, &y), NULL);
 }
 
-/* zkHpAt P w: H_p(P) at the context w (Q-S5-1 (a)). */
+static const Value *zk_hp_term(Machine *m, const Value *pt, const Value *ctx);
+
+/* zkHpAt P w: H_p(P) at the context w (Q-S5-1 (a)). An open point (a pair
+   with an open word) or an open w stays opaque by zk_hp_term, and lower.c
+   lowers it as the H_p loop (restrict-lang S7, Q-S7-14 (e1)). A point that
+   is not a pair stays opaque. */
 static const Value *zk_hp_at(Machine *m, const Value *const *a, uint32_t n) {
   const Value *out = point_trap(a[0]);
   G1 p;
@@ -1565,8 +1601,10 @@ static const Value *zk_hp_at(Machine *m, const Value *const *a, uint32_t n) {
     out = trap_arg(a + 1, 1u);
   if (out != NULL)
     return out;
-  if (!closed_point(a[0]) || a[1]->kind != VAL_WORD)
+  if (!val_is(a[0], OP_PAIR))
     return opaque(m, OP_ZK_HP_AT, a, n);
+  if (!closed_point(a[0]) || a[1]->kind != VAL_WORD)
+    return zk_hp_term(m, a[0], a[1]);
   if (!g1_from_words(&p, a[0]->args[0]->word, a[0]->args[1]->word) || !blsag_hash_point_at(&h, &counter, &p, a[1]->word))
     return overflow(m);
   g1_to_words(&x, &y, &h);
@@ -1641,19 +1679,57 @@ static const Value *zk_node(Machine *m, Op op, const Value *a, const Value *b, c
   return reduce_op(m, op, 0, 0, args, c != NULL ? 3u : b != NULL ? 2u : 1u);
 }
 
+/* 1 when V is a closed list of 1 to BLSAG_RING_MAX pairs: the ring of
+   zkVerifyAt with open or closed words (restrict-lang S7, Q-S7-5 (a)). PTS
+   (BLSAG_RING_MAX + 1 slots) gets the pairs and *COUNT the length. */
+static int zk_ring_terms(const Value *v, const Value **pts, uint32_t *count) {
+  const Value *trap = NULL;
+  uint32_t i;
+  if (!closed_list(v, pts, BLSAG_RING_MAX, count, &trap) || *count == 0 || *count > BLSAG_RING_MAX)
+    return 0;
+  for (i = 0; i < *count; i++) {
+    if (!val_is(pts[i], OP_PAIR) || pts[i]->argc != 2u)
+      return 0;
+  }
+  return 1;
+}
+
+/* H_p of the ring point PT at the context CTX (NULL for zkVerify). A closed
+   point with a closed or NULL context is the host H (front/blsag.c), and a
+   failure traps. Else the term stays opaque: zkHp PT for a NULL context,
+   zkHpAt PT CTX for a context (restrict-lang S7, Q-S7-14 (e1)). lower.c
+   lowers it as the H_p loop of RESTRICT_HP_TRIES tries (Q-S5-1 (a), Q-S7-5
+   (a), O8): x_k = hash(h, k), the root s = rhs^((p + 1) / 4) and the square
+   test s^2 = rhs by MODEXP 0x05, y the smaller root, and the first counter
+   that passes wins. No counter below the bound gives a revert. */
+static const Value *zk_hp_term(Machine *m, const Value *pt, const Value *ctx) {
+  G1 p;
+  G1 h;
+  uint32_t counter = 0;
+  if (closed_point(pt) && (ctx == NULL || ctx->kind == VAL_WORD)) {
+    if (!g1_from_words(&p, pt->args[0]->word, pt->args[1]->word))
+      return overflow(m);
+    if (!(ctx == NULL ? blsag_hash_point(&h, &counter, &p) : blsag_hash_point_at(&h, &counter, &p, ctx->word)))
+      return overflow(m);
+    return zk_point_value(m, &h);
+  }
+  return ctx == NULL ? opaque(m, OP_ZK_HP, &pt, 1u) : opaque(m, OP_ZK_HP_AT, (const Value *const[]){pt, ctx}, 2u);
+}
+
 /* The verifier term of a stuck zkVerify with a closed ring (S8 B3a, Q-B3
    ruling (a)): blsag_verify unrolled for n over ecAdd, ecMul, hash, u256Le,
    u256Eq, first, second, pair and flagIf, so the lowering emits 6n precompile
    calls. The ring points, the H_i table, D, the tag and r minus 1 are closed
    words of the term. The chain is the challenge fold of front/blsag.c: tag,
    D, poll id, choice, I.x, I.y, L.x, L.y, R.x, R.y. ITEMS holds c_1, s_1 to
-   s_n, I.x, I.y. W is NULL, or the closed context word of zkVerifyAt (the
-   H_i table is then H_p at W). */
-static const Value *zk_unroll(Machine *m, const G1 *ring, uint32_t n, const U256 *ctx, const Value *poll, const Value *choice, const Value *const *items) {
+   s_n, I.x, I.y. CTX is NULL, or the context word of zkVerifyAt (the H_i
+   table is then H_p at CTX). restrict-lang S7 (Q-S7-5 (a)): PTS are the ring
+   terms, D is the hash chain of blsag_digest over their words and H_i is
+   zk_hp_term, so an open ring point or context gives the open H_p chain. A
+   closed ring with a closed or NULL context gives the same words as S8 B3a. */
+static const Value *zk_unroll(Machine *m, const Value *const *pts, uint32_t n, const Value *ctx, const Value *poll, const Value *choice, const Value *const *items) {
   U256 w;
   U256 v;
-  G1 h;
-  uint32_t counter = 0;
   uint32_t i;
   const Value *g;
   const Value *tag;
@@ -1667,8 +1743,9 @@ static const Value *zk_unroll(Machine *m, const G1 *ring, uint32_t n, const U256
   u256_from_u64(&v, 2u);
   g = make(m, VAL_OP, OP_PAIR, 0, 2, word_value(m, &w), word_value(m, &v), NULL);
   tag = word_value(m, &BLSAG_TAG);
-  blsag_digest(&w, ring, n);
-  d = word_value(m, &w);
+  d = zk_node(m, OP_HASH, pts[0]->args[0], pts[0]->args[1], NULL);
+  for (i = 1; i < n; i++)
+    d = zk_node(m, OP_HASH, zk_node(m, OP_HASH, d, pts[i]->args[0], NULL), pts[i]->args[1], NULL);
   u256_from_u64(&w, 0u);
   zero = word_value(m, &w);
   for (i = 0; i < 4u; i++)
@@ -1680,12 +1757,13 @@ static const Value *zk_unroll(Machine *m, const G1 *ring, uint32_t n, const U256
   c = items[0];
   for (i = 0; i < n; i++) {
     const Value *s = items[1u + i];
+    const Value *h = zk_hp_term(m, pts[i], ctx);
     const Value *l;
     const Value *r;
-    if (!(ctx == NULL ? blsag_hash_point(&h, &counter, &ring[i]) : blsag_hash_point_at(&h, &counter, &ring[i], ctx)))
-      return overflow(m);
-    l = zk_node(m, OP_EC_ADD, zk_node(m, OP_EC_MUL, g, s, NULL), zk_node(m, OP_EC_MUL, zk_point_value(m, &ring[i]), c, NULL), NULL);
-    r = zk_node(m, OP_EC_ADD, zk_node(m, OP_EC_MUL, zk_point_value(m, &h), s, NULL), zk_node(m, OP_EC_MUL, img, c, NULL), NULL);
+    if (h->kind == VAL_TRAP)
+      return h;
+    l = zk_node(m, OP_EC_ADD, zk_node(m, OP_EC_MUL, g, s, NULL), zk_node(m, OP_EC_MUL, pts[i], c, NULL), NULL);
+    r = zk_node(m, OP_EC_ADD, zk_node(m, OP_EC_MUL, h, s, NULL), zk_node(m, OP_EC_MUL, img, c, NULL), NULL);
     c = zk_node(m, OP_HASH, tag, d, NULL);
     c = zk_node(m, OP_HASH, c, poll, NULL);
     c = zk_node(m, OP_HASH, c, choice, NULL);
@@ -1708,18 +1786,32 @@ static const Value *zk_unroll(Machine *m, const G1 *ring, uint32_t n, const U256
    flagNo. An open poll id, choice or signature word with a closed ring of
    the right length gives the unrolled verifier term (zk_unroll); any other
    open call stays stuck. OP is OP_ZK_VERIFY, or OP_ZK_VERIFY_AT for
-   zkVerifyAt ring w m sig (H_p at w); an open w stays stuck. */
+   zkVerifyAt ring w m sig (H_p at w). For zkVerifyAt an open w or an open
+   ring point (a closed list of pairs) with a list of the right length also
+   gives the unrolled term, with the open H_p chain (restrict-lang S7,
+   Q-S7-5 (a)). */
 static const Value *zk_verify(Machine *m, Op op, const Value *const *a, uint32_t n) {
   const Value *out = trap_arg(a, n);
   const Value *items[BLSAG_RING_MAX + 4u];
+  const Value *pts[BLSAG_RING_MAX + 1u];
   G1 ring[BLSAG_RING_MAX];
   U256 sig[BLSAG_RING_MAX + 3u];
+  uint32_t terms = 0;
   uint32_t count = 0;
   uint32_t len = 0;
   uint32_t i;
   int open = 0;
+  int ring_open = 0;
+  int terms_ok;
   if (out != NULL)
     return out;
+  terms_ok = zk_ring_terms(a[0], pts, &terms);
+  if (terms_ok) {
+    for (i = 0; i < terms; i++) {
+      if (!closed_point(pts[i]))
+        ring_open = 1;
+    }
+  }
   if (a[1]->kind != VAL_WORD || a[2]->kind != VAL_WORD)
     open = 1;
   if (!closed_list(a[3], items, BLSAG_RING_MAX + 3u, &len, &out))
@@ -1728,14 +1820,14 @@ static const Value *zk_verify(Machine *m, Op op, const Value *const *a, uint32_t
     if (items[i]->kind != VAL_WORD)
       open = 1;
   }
+  if (op == OP_ZK_VERIFY_AT && terms_ok && len == terms + 3u && (ring_open || a[1]->kind != VAL_WORD))
+    return zk_unroll(m, pts, terms, a[1], a[1], a[2], items);
   if (!zk_ring(m, op, a, n, ring, &count, &out))
     return open ? opaque(m, op, a, n) : out;
   if (len != count + 3u)
     return open ? opaque(m, op, a, n) : flag(m, 0);
-  if (open && op == OP_ZK_VERIFY_AT && a[1]->kind != VAL_WORD)
-    return opaque(m, op, a, n);
   if (open)
-    return zk_unroll(m, ring, count, op == OP_ZK_VERIFY_AT ? a[1]->word : NULL, a[1], a[2], items);
+    return zk_unroll(m, pts, count, op == OP_ZK_VERIFY_AT ? a[1] : NULL, a[1], a[2], items);
   for (i = 0; i < len; i++)
     sig[i] = *items[i]->word;
   switch (op == OP_ZK_VERIFY_AT ? blsag_verify_at(ring, count, a[1]->word, a[2]->word, sig) : blsag_verify(ring, count, a[1]->word, a[2]->word, sig)) {
@@ -2647,6 +2739,7 @@ static const Value *transp_data(Machine *m, const Value *head, const Value *line
   case OP_ZK_HP_AT:
   case OP_ZK_SIGN_AT:
   case OP_ZK_VERIFY_AT:
+  case OP_MODEXP:
   case OP_ZK_CAST:
   case OP_ZK_PROVE:
   case OP_ZK_PROJECT:
@@ -3651,6 +3744,8 @@ static const Value *reduce_op(Machine *m, Op op, uint32_t inst, uint32_t field, 
     return zk_verify(m, op, a, n);
   case OP_ZK_HP_AT:
     return zk_hp_at(m, a, n);
+  case OP_MODEXP:
+    return mod_exp(m, a, n);
   case OP_ZK_CAST:
     return zk_cast(m, a, n);
   case OP_ZK_PROVE:

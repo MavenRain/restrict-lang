@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 /* Residual lowering regressions exercise checked source and the resulting IR. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -271,8 +272,89 @@ static int fold_regression(const char *name, const char *step, const char *seed,
   return ok;
 }
 
+/* Compare the closed H_p result with execution of its open EVM view. */
+static int hp_regression(const char *name, const char *x, const char *y) {
+  char source[2048], input[201], expected[128] = "", output[1024] = "";
+  const char *signature = "hpX(uint256,uint256,uint256)";
+  unsigned char digest[32];
+  snprintf(source, sizeof source,
+    "state State := makeState (counter : Nat)\n"
+    "def init : State := makeState 0\n"
+    "def wx : U256 := %s\ndef wy : U256 := %s\n"
+    "def wc : U256 := 8243103980183774578u\n"
+    "def answer : U256 := first (zkHpAt (pair wx wy) wc)\n"
+    "def hpX : Env -> State -> U256 -> U256 -> U256 -> U256 := "
+    "fun env s x y w => first (zkHpAt (pair x y) w)\n", x, y);
+  Arena arena;
+  Diag diag;
+  DeclList decls;
+  Machine machine;
+  FILE *code = tmpfile();
+  if (code == NULL) return 0;
+  arena_init(&arena, (size_t)1 << 25);
+  diag_init(&diag);
+  int ok = front_load(&arena, name, source, strlen(source), &decls, &diag)
+    && check_program(&arena, &decls, &machine, &diag, CHECK_KIT);
+  keccak256((const unsigned char *)signature, strlen(signature), digest);
+  for (size_t i = 0; i < 4; i++) snprintf(input + 2 * i, 3, "%02x", digest[i]);
+  const char *names[] = {"wx", "wy", "wc", "answer"};
+  for (size_t i = 0; ok && i < 4; i++) {
+    const Value *value = NULL;
+    machine.fuel = EVAL_FUEL_STEPS;
+    for (uint32_t j = 0; j < machine.def_count; j++)
+      if (strcmp(machine.defs[j].name, names[i]) == 0) value = def_value(&machine, j);
+    Word word;
+    if (i == 3 && value != NULL && value->kind == VAL_TRAP) {
+      strcpy(expected, "execution reverted");
+    } else if ((ok = word_of(value, word))) {
+      char *dest = i == 3 ? expected + 2 : input + 8 + 64 * i;
+      for (size_t j = 0; j < 32; j++) snprintf(dest + 2 * j, 3, "%02x", word[j]);
+      if (i == 3) {
+        expected[0] = '0'; expected[1] = 'x';
+        expected[66] = '\n'; expected[67] = '\0';
+      }
+    }
+  }
+  if (ok) ok = lower_build(&machine, TARGET_PART_RUNTIME, code) == 0 && !diag.set;
+  long size = ftell(code);
+  char *command = ok && size > 0 ? malloc((size_t)size + 512) : NULL;
+  if (command == NULL) ok = 0;
+  if (ok) {
+    const char *prefix = "evm run --code ";
+    size_t n = strlen(prefix);
+    strcpy(command, prefix);
+    rewind(code);
+    size_t count = fread(command + n, 1, (size_t)size, code);
+    ok = count == (size_t)size && !ferror(code);
+    n += count;
+    if (n > 0 && command[n - 1] == '\n') n--;
+    snprintf(command + n, 512, " --input %s 2>&1", input);
+    FILE *process = ok ? popen(command, "r") : NULL;
+    ok = process != NULL;
+    if (process != NULL) {
+      size_t bytes = fread(output, 1, sizeof output - 1, process);
+      output[bytes] = '\0';
+      int read_ok = !ferror(process) && feof(process);
+      int status = pclose(process);
+      ok = read_ok && WIFEXITED(status) && WEXITSTATUS(status) == 0
+        && strstr(output, expected) != NULL;
+    }
+  }
+  if (!ok) {
+    fprintf(stderr, "FAIL H_p %s: wanted %s, got %s\n", name, expected, output);
+    if (diag.set) diag_print(&diag, stderr);
+  }
+  free(command);
+  fclose(code);
+  arena_release(&arena);
+  return ok;
+}
+
 int main(void) {
   int ok = 1;
+  ok &= hp_regression("off-curve", "1u", "1u");
+  ok &= hp_regression("coordinate-at-p", "21888242871839275222246405745257275088696311157297823662689037894645226208583u", "1u");
+  ok &= hp_regression("infinity", "0u", "0u");
   const char *head = "fun (x : U256) (acc : U256) => x";
   const char *sum = "fun (x : U256) (acc : U256) => u256Add x acc";
   ok &= fold_regression("discard-precompile-seed-failure", head,
