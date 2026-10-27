@@ -19,6 +19,13 @@
 # word is hash(0x..da, 1)) go to restrictdao, and its enact calls setCapN 4u on
 # restrictkit. The kit word pCapN (storage slot 0x0b) must change from 2 to 4.
 # A setCapN call from the voter to restrictkit reverts (fromDao is false).
+#
+# Then the S7 s7 rows (Q-S7-22 (a), Q-S7-26 (a)): propose from the key address
+# (the proposer) moves the poll to pid 16 with the counters of `build/ballottool
+# rdao16` and kind 1 (setCapCN). The pid 1 image b0 cannot seal at pid 16 (R2);
+# the counters 19 1 0 revert on the bound before the H_p loop (R1). The 3
+# ballots b3, b4 and b5 of rdao16 are cast at pid 16, and enact at BLOCK 22
+# calls setCapCN 9u on restrictkit (pCapCN, storage slot 0x0c, changes to 9).
 set -u
 fail=0
 steps=0
@@ -209,15 +216,18 @@ keep() {
 rdao() { on dao; call "$@"; keep; }
 rkit() { on kit; call "$@"; keep; }
 
-# capn WANT: the kit word pCapN (slot 0x0b, field 11 of the kit State) must
-# equal WANT (as hexnorm).
-capn() {
+# kword SLOT NAME WANT: the kit word NAME (storage slot SLOT) must equal WANT
+# (as hexnorm). capn WANT: pCapN (slot 0x0b, field 11 of the kit State).
+# capcn WANT: pCapCN (slot 0x0c, field 12).
+kword() {
   steps=$((steps + 1))
-  _v=$(awk -v s="$(pad b)" '$1 == s { print $2 }' "$tmp/kit.raw")
-  [ "$(hexnorm "${_v:-0}")" = "$1" ] || { echo "FAIL dao pCapN (step $steps): want $1, got ${_v:-0}"; fail=$((fail + 1)); }
+  _v=$(awk -v s="$(pad "$1")" '$1 == s { print $2 }' "$tmp/kit.raw")
+  [ "$(hexnorm "${_v:-0}")" = "$3" ] || { echo "FAIL dao $2 (step $steps): want $3, got ${_v:-0}"; fail=$((fail + 1)); }
 }
+capn() { kword b pCapN "$1"; }
+capcn() { kword c pCapCN "$1"; }
 
-{ build/ballottool rdao && build/ballottool words; } >"$tmp/words" || { echo "FAIL dao: ballottool rdao"; exit 1; }
+{ build/ballottool rdao && build/ballottool rdao16 && build/ballottool words; } >"$tmp/words" || { echo "FAIL dao: ballottool rdao"; exit 1; }
 if ! rdeploy; then
   echo "FAIL dao rdao deploy: $(head -n 1 "$tmp/dump")"
   rm -rf "$tmp"
@@ -254,6 +264,34 @@ gasrow "rdao enact"
 rdao "out 4" windowNow 0
 capn 4
 rdao revert enact 11 $(opening 2)
+capn 4
+
+# propose (S7 s7): from the voter at BLOCK 0 it reverts (not the proposer and
+# not after castEnd 10). (R1) The counters 19 1 0 at pid 2 revert on hc0 <= 7.
+# At BLOCK 11 the key address moves the poll to pid 16 (castEnd 21), kind 1,
+# proposal 9u. A second propose reverts. (R2) castSeal of the pid 1 image b0
+# with the pid 16 sum proof atksum reverts.
+rdao revert propose 0 16u $(ws "" hc0 hc1 hc2) 1u 9u
+rdao revert propose 11 2u 19u 1u 0u 0u 4u
+rdao ok propose 11 16u $(ws "" hc0 hc1 hc2) 1u 9u
+gasrow "rdao propose"
+rdao "out 10" pidNow 0
+rdao "out 1" kindNow 0
+rdao "out 0" castCount 0
+rdao revert propose 11 16u $(ws "" hc0 hc1 hc2) 1u 9u
+rdao revert castSeal 11 $(ws b0 ix iy) $(ws atksum ax ay bx by z)
+
+# The 3 pid 16 casts (the slot ciphertexts of b3, b4 and b5 are those of b0,
+# b1 and b2, so the tally opens with m 2 again). A second seal reverts.
+# enact at BLOCK 22 calls setCapCN 9u on restrictkit (pCapCN 3 -> 9).
+cast 3 rdao
+cast 4 rdao
+cast 5 rdao
+rdao "out 3" castCount 0
+rdao revert castSeal 0 $(seal 3)
+capcn 3
+rdao ok enact 22 $(opening 2)
+capcn 9
 capn 4
 
 rm -rf "$tmp"

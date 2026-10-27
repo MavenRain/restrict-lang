@@ -416,8 +416,10 @@ static void ballot_words(uint32_t v, const Ballot *b) {
    ctx, so the host sum tn of `ballottool words` is the same. With AT
    (`ballottool rdao`, restrict-lang S7 s5, Q-S7-19 (a)) the ring signs at
    the context word AT (blsag_sign_at), the constants of
-   examples/restrictdao.lang. Voter i signs with zkKey KEYS[i]. */
-static int dao(const G1 *pk, const G1 *ring, const uint32_t *keys, const ThrShare *shares, const uint32_t *choice, const U256 *at) {
+   examples/restrictdao.lang. PID goes into the ctx: 0 (the poll) for
+   daokit, 1 for restrictdao (S7 s7, Q-S7-22 (a)). Voter i signs with zkKey
+   KEYS[i]. */
+static int dao(const G1 *pk, const G1 *ring, const uint32_t *keys, const ThrShare *shares, const uint32_t *choice, const U256 *pid, const U256 *at) {
   static const char *const amount[3] = {"fa", "fs", "fm"};
   static const char *const opening[3] = {"oa", "os", "om"};
   Ballot b[3];
@@ -427,9 +429,8 @@ static int dao(const G1 *pk, const G1 *ring, const uint32_t *keys, const ThrShar
   U256 l2;
   U256 w;
   uint32_t i;
-  u256_from_u64(&w, 0u);
   for (i = 0; i < 3u; i++)
-    if (!cast(&b[i], ring, pk, &w, at, i, keys[i], choice[i])) {
+    if (!cast(&b[i], ring, pk, pid, at, i, keys[i], choice[i])) {
       fprintf(stderr, "FAIL dao: the cast of voter %u refuses\n", i);
       return 1;
     }
@@ -470,6 +471,57 @@ static int dao(const G1 *pk, const G1 *ring, const uint32_t *keys, const ThrShar
     word(p, "r", &f.r[i]);
     word(p, "w", &f.w[i]);
   }
+  return 0;
+}
+
+/* `ballottool rdao16` (restrict-lang S7 s7, Q-S7-22 (a)): the next good pid
+   16 of restrictdao, the H_p counters hc0..hc2 of the ring at the context
+   word hash(0x..da, 16) (each below RESTRICT_HP_TRIES), the 3 ballots at pid
+   16 as the voters b3..b5, and the attack words atksum: a sum proof for the
+   slots of the pid 1 ballot of voter 0 (W1 is its context word), under the
+   ctx of its key image at pid 16. castSeal must refuse them: the pid 16
+   nullifier of that key image has no stage. */
+static int rdao16(const G1 *pk, const G1 *ring, const U256 *w1, const uint32_t *choice) {
+  Ballot b[3];
+  Ballot old;
+  G1 hp;
+  U256 pid;
+  U256 one;
+  U256 w;
+  U256 seed;
+  U256 c;
+  uint32_t counter;
+  uint32_t i;
+  int ok = 1;
+  u256_from_u64(&pid, 16u);
+  u256_from_u64(&w, DAO_SELF);
+  thr_hash(&w, &w, &pid);
+  word("", "pid16", &pid);
+  for (i = 0; i < N; i++) {
+    char name[4];
+    ok &= (blsag_hash_point_at(&hp, &counter, &ring[i], &w) && counter < RESTRICT_HP_TRIES) || fail("rdao16 H_p counter");
+    snprintf(name, sizeof name, "hc%u", i);
+    u256_from_u64(&c, counter);
+    word("", name, &c);
+  }
+  for (i = 0; i < 3u; i++)
+    ok &= cast(&b[i], ring, pk, &pid, &w, i, rdao_keys[i], choice[i]) || fail("rdao16 cast");
+  u256_from_u64(&one, PID);
+  ok &= cast(&old, ring, pk, &one, w1, 0u, rdao_keys[0], choice[0]) || fail("rdao16 pid 1 cast");
+  if (!ok)
+    return 1;
+  for (i = 0; i < 3u; i++)
+    ballot_words(3u + i, &b[i]);
+  ballot_ctx(&c, &old.sig[N + 1u], &old.sig[N + 2u], &pid);
+  blsag_key(&seed, 40u);
+  ok &= (sig_onehot_prove(old.cts, old.slots, &old.sum, pk, K, choice[0], &seed, &c) == SIG_OK
+         && sig_onehot_verify(old.cts, old.slots, &old.sum, pk, K, &c) == SIG_OK)
+        || fail("rdao16 attack sum");
+  if (!ok)
+    return 1;
+  point("atksum", "ax", "ay", &old.sum.a);
+  point("atksum", "bx", "by", &old.sum.b);
+  word("atksum", "z", &old.sum.z);
   return 0;
 }
 
@@ -598,8 +650,9 @@ int main(int argc, char **argv) {
     elg_public(&rring[v], &x);
     keys[v] = shares[v].key;
   }
+  u256_from_u64(&x, 0u);
   if (argc == 2 && strcmp(argv[1], "dao") == 0)
-    return dao(&pk, ring, dao_keys, shares, choice, NULL);
+    return dao(&pk, ring, dao_keys, shares, choice, &x, NULL);
   u256_from_u64(&pid, PID);
   u256_from_u64(&self, DAO_SELF);
   thr_hash(&w, &self, &pid);
@@ -618,8 +671,10 @@ int main(int argc, char **argv) {
     }
     if (!ok)
       return 1;
-    return dao(&pk, rring, rdao_keys, shares, choice, &w);
+    return dao(&pk, rring, rdao_keys, shares, choice, &pid, &w);
   }
+  if (argc == 2 && strcmp(argv[1], "rdao16") == 0)
+    return rdao16(&pk, rring, &w, choice);
   u256_from_u64(&self, SELF);
   thr_hash(&w, &self, &pid);
   for (v = 0; v < 3u; v++)
@@ -663,7 +718,7 @@ int main(int argc, char **argv) {
   ok &= (thr_open(&m_yes, parts, 2u, keys, T, N, &yes, BITS) == THR_FOUND && m_yes == 2u) || fail("tally yes");
   quorum(parts, shares, &no);
   ok &= (thr_open(&m_no, parts, 2u, keys, T, N, &no, BITS) == THR_FOUND && m_no == 1u) || fail("tally no");
-  /* The ballots of `ballottool rdao` (restrict-lang S7 s5): poll 0, the ring
+  /* The ballots of `ballottool rdao` (restrict-lang S7 s5): the ring
      of zkKey 17, 36, 2 (Q-S7-20 (a)) signs at the context word
      hash(0x..da, PID). The signature verifies at
      that word, not in the poll form of daokit (blsag_verify at poll 0) and
