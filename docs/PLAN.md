@@ -844,6 +844,20 @@ S7 s3 (DONE, 2026-10-26) notes (Q-S7-10 to Q-S7-14):
   word at 1u (castOld), nullOf at 0u in place of the pid (sealR2, R2),
   and `propose` keeps casts or enacted (movedState). The serial gate
   after the restores is byte for byte the s7 gate log.
+- S7 USER fix (525e855, the USER S7 commit, 2026-10-27; the USER ruled
+  it the S8 base, section 17): restrictkit converts the durations of
+  setLockD and setRegD to Nat, thus it cannot enact a value above
+  2^64 - 1. `proposalValueOk k v` is yes for k <= 1 (setCapN and
+  setCapCN keep all U256 values). For k = 2 or 3 it needs v <= 18446744073709551615u.
+  `propose` tests it in place of `u256Le k 3u` (the test k <= 3 is in
+  it). 8 eval rows: proposeLockOver and proposeRegOver (v = 2^64) and
+  proposeLockHigh and proposeRegHigh (a larger v) give `none`;
+  proposeLockMax and proposeRegMax (v = 2^64 - 1) and proposeCapWide and
+  proposeClassWide (v = 2^256 - 1) keep the value. The serial gate (EXIT
+  0) against the S7 s7 log: evals 249 to 257, the rdao size row
+  23839/23879 to 23909/23949 (667 under the limit), and the gas row
+  `rdao propose` 124712 to 124761. The dao chain stays at 89 steps. No
+  mutant yet (Q-S8-2).
 
 ## 7. The contract
 
@@ -909,7 +923,7 @@ Guest files under `test/check/` and `examples/`, `langc run` scripts under
 | S5 | Part C: the class partition (4.2), the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | DONE (2026-10-25): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt` (Q-S5-1 (a); the key image seed is hash(hash(P.x, P.y), w), and the old ops keep the same bytes) with the blsagtool context rows; `examples/restrict.lang` with Part C (section 3.4, S5 notes; 26 more `refl` paths: L2, L7, L8, the issue, register and class rows) and `test/run/restrict.script` (9 more rows). `make -B check` EXIT 0. No counter changes: the log is byte for byte the S5 step0 log, because S5 adds no example file and no run script, and the blsagtool context rows print no new line; 0 failures. Mutants: 6 (L2, L7, L8, the key image context, expiry, the class rule), 6 KILLED; the gate stops at the first failed step, so the second legs ran alone: M2 and M5 change run rows 20 and 21 (on the example without its `refl` rows, whose run output is `restrict.out`), and M4 fails three blsagtool context rows. The gate after the restore is byte for byte the S5 gate log |
 | S6 | the DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S5 gate log (HEAD daa2cae, with the USER bLSAG nonce fix); probes p1 to p6 (section 15); docs only; the USER ruled Q-S6-1 to Q-S6-8 (a). s2 DONE (2026-10-25): the port of intent-lang 3df9d96 (Q-S6-1 (a)) with the ballot context hash(selfWord, pid) (Q-S6-7 (a)); in `examples/restrict.lang` the `Params` words, the issuer map, the class pass set and the setters (section 3.1, S6 notes); `examples/charter.lang` with the charter law and the regime rows (section 4.4). `make -B check` EXIT 0. The changes from the step0 log: examples 51 -> 54 (`tally.lang`, `ballot.lang` and `charter.lang`; `charter.lang` is a third new example, so +3, not +2 as Q-S6-1 said), check refusals 187 -> 188 (`tally-leak.lang`), evals 188 -> 203 (tally 6, ballot 9), precompile steps 143 -> 152 (the ballot steps), and three new lines: the `ballottool` build, its check-clang row and `ballot regressions: passed`; the run counts do not change; 0 failures. The base is the S6 s1 step0 log (`restrict-lang-S6-step0-gate.log`): the s2 step0 log has `precompile: 152 steps checked` at line 76, not 143, because the `test/precompile.sh` hunk went in while that gate ran. Mutants: 8 (holderCap reads 2u, `issue` ignores the issuer map, `setCapN` writes `pCapCN`, `tallyEnc` drops the head ballot, a tie passes in `decide`, the ballot ctx drops pid, `active` keeps the old rule set, `yn` passes on a tie), 8 KILLED; the tie and ctx mutants pass their checks and fail the eval rows `tally kept` and `ballot sigGood`. The gate after the restore is byte for byte the S6 gate log |
 | S7 | the contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), chain rows on the test token (Q13) | s1 DONE (2026-10-25): STEP 0 gate EXIT 0, byte for byte the S6 gate log (HEAD 864849a, the USER S6 commit, with no fix); probes p1 to p7 (section 16): the writer refuses the kit file, the kit build refuses `either` (`canTransfer`, `step`) and `zkVerifyAt` over a state ring or a run-time context word; Q-S7-1 to Q-S7-9 OPEN at s1; docs only; then the USER ruled Q-S7-1 to Q-S7-9 (a). s2 DONE (2026-10-25): the base is USER 273914f, the s1 tree with a USER fix in this file (Nat is an ABI `uint64`; `toNat` accepts only values at most 18446744073709551615u, and a larger value traps in eval and reverts on the chain, Q-S7-4). The port of intent-lang S8 (`ef5abe8..c6636f1`) and S10 (`3df9d96..79e1898`; S6 had S9) (Q-S7-3 (a)): the `Env.block` prelude, `examples/blocks.lang`, `examples/daokit.lang`, `test/dao.sh` and the S10 kit code; `ballottool dao` signs the intent-lang form with no context word, and the S6 ballots do not change (section 6, S7 notes). The rules form builds `allowed.bit` from the rule bits (Q-S7-2 (a); section 3.3, S7 notes): the kit build of `examples/restrict.lang` now refuses `canTransfer` at the plain `mapGet` (the s3 kit maps), not at `either`. The kit op `toNat : U256 -> Nat` (Q-S7-4 (a)): eval traps above 2^64 - 1, and the lowering reverts (an IF with a TRAP arm); eval rows `natZero`, `natMax`, `natOver`, `natTop` and `natHigh` (2^192, limb 3 only); the chain rows are s4 work. The `Env` field `self : Addr` (Q-S7-6 (a)) lowers to ADDRESS (0x30), and a run script sets it with the line `env SELF` (section 6, S7 notes); the constant `self` is now `selfAddr` (rule R4; section 3.4, S7 notes), the 20 `makeEnv` sites get a fourth argument, and `examples/selfenv.lang` has the eval, run and chain rows. `examples/circle.lang` renames its `toNat` to `s1ToNat` (R4). `make -B check` EXIT 0, 120 lines. The changes from the s1 step0 log: the `ballottool` build and its check-clang row get `src/front/secp256k1.c` (lines 17 and 40); examples 54 -> 57 (`blocks.lang`, `daokit.lang`, `selfenv.lang`); evals 203 -> 221 (daokit 11, toNat 5, selfIs 2); runs 7 -> 10 (the `blocks`, `daokit` and `selfenv` scripts); run refusals 10 -> 15 (a bad BLOCK, four `env` rows); evm steps 43 -> 62 (16 S8 and S10 steps, 3 selfenv steps); five new lines: `sh test/dao.sh`, `dao size rows: runtime 16702 bytes (limit 24576), initcode 16737 bytes (limit 49152)`, `dao gas rows`, `dao chain: 33 steps, 0 failures` and `dao regressions: passed`; the two lowertool `to-nat` rows and the seven new `refl` rows print no new line; 0 failures. Mutants: 8 (the rules bit gives `flagYes`, `to_nat` tests `== 0`, `to_nat` does not test limb 3, `lower_to_nat` has no TRAP arm, `evm.c` emits CALLER for `self`, `lower.c` lowers `self` to CALLER, `run_env` takes an env line after a call, `run_env` takes a second env line), 8 KILLED; the limb-3 mutant fails only the eval row `natHigh`. The gate after the restore is byte for byte the s2 gate log. s3 DONE (2026-10-26): the base is HEAD 46a8860. The USER ruled Q-S7-10 to Q-S7-13 (a) and Q-S7-14 (e1) (section 16; the Q-S7-12 counters and the Q-S7-14 counts are there). The open zkHpAt in eval (an opaque `OP_ZK_HP` or `OP_ZK_HP_AT` term), the internal op `OP_MODEXP` (precompile 0x05), and the H_p loop `lower_hp` with K = 8 (`RESTRICT_HP_TRIES`; a found flag stops the tries; two locals for the point) (section 6, S7 s3 notes). `examples/restrictkit.lang`: `issue` takes the counter hc as a fifth word and checks `hpAt` at `selfWord` (Q-S7-13 (a): each ring point of a reachable state has a counter below K, so the closed eval and the chain agree) (section 3.4, S7 s3 notes). Size before review: the kit runtime was 13277 bytes (issue 1135, register 4412); after the review fixes it is 15490 bytes, under 24576. The unrolled form was 112810 bytes. Tests: the kit rows of restrictkit.lang, 4 `hpX` rows in `test/precompile.sh`, the refusal `test/lower/hp-point.lang`, and `test/restrict.sh` (8 steps). `make -B check` serial EXIT 0. The changes from the s3 step0 log: examples 57 -> 58 (`restrictkit.lang`); lower refusals 16 -> 17 and checks 33 -> 34 (`hp-point.lang`); precompile steps 152 -> 156 (the 4 `hpX` rows); three new lines: `sh test/restrict.sh`, `restrict: 8 steps checked` and `restrict gate: 0 failures`; 0 failures. Mutants: 8 (the counter starts at 1, REPEAT K - 1, the last byte of E, the found flag never stops the tries, no TRAP after the loop, `issue` skips `hpAt`, `u256Le hc 8u`, `selfWord` reads `caller`): 7 KILLED, 1 equivalent. The found-flag mutant passed the first gate; a probe of `hpX` found keys with two counters below K (zkKey j G for j = 3, 4, 5, 10, 14, 15, 17, 30), and the new row zkKey 3 G kills it. The `issue` and `selfWord` mutants fail the kit check (`issueNoPoint`, `selfEnvIs`) before the chain leg. `u256Le hc 8u` is equivalent on the chain: the loop traps for each key with no counter below K, and no key j in 0 to 40 has a point at counter 8 in eval. The gate after the restores is byte for byte the item 6 gate log; the last gate differs from it only at `precompile: 155 -> 156 steps checked`. s4 NEXT: the `toNat` chain rows for the 4 USER values (0u, 18446744073709551615u, 18446744073709551616u, the largest U256: the first two succeed, the last two revert), the `lower_to_nat` IF mutants (arm swap, IR_OP_LE -> IR_OP_LT; only a chain row kills them), the DAO entries, the test token (Q-S7-7 (a) `asmtool token`), the ABI row (Q-S7-8 (a)) and the EIP-170 check of the full contract. s4 survey (2026-10-26): the base is d460972 (tree 5034acfc), the USER s3 commit with review fixes (restrictkit runtime 15490 bytes); STEP 0 gate EXIT 0, byte for byte the s3 gate log; probes s4a to s4e (section 16): the ballot entries do not fit in restrictkit under EIP-170 (9086 bytes of room, `castSig` alone is about 9.2 kB), and no kit entry gives a word to `toNat`; Q-S7-15 and Q-S7-16 OPEN at the survey; docs only; then the USER ruled Q-S7-15 (a) and Q-S7-16 (a). s4 DONE (2026-10-26): the base is d460972. restrictkit gets the init field `dao : Addr` (0x..da) and 7 setter entries with the check `fromDao` (section 3.1); `examples/natkit.lang` and its run script give the `toNat` chain rows of the 4 USER values; the asmtool mode `token` is the test token (section 3.2); `test/restrict.sh` has 17 setter rows, 15 token rows, the ABI row (9 EIP selectors) and the size rows (restrictkit runtime 16050 and initcode 16177 bytes). Gate EXIT 0: examples 58 -> 59, runs 10 -> 11, evm steps 62 -> 69, restrict 8 -> 40 steps; 14 mutants KILLED (section 6, S7 s4 notes). s5 NEXT: the kit CALL form, `examples/restrictdao.lang` at 0x..da in the prestate and the link chain rows (Q-S7-15 (a)). s5 DONE (2026-10-26): the base is 9a7d6c0 (tree 408fc044), the USER s4 commit. The USER ruled Q-S7-17 to Q-S7-20 (a) (section 16). The kit CALL form (Q-S7-17 (a)), `examples/restrictdao.lang` with an `enact` that calls the restrictkit setter `setCapN` (Q-S7-18 (a)), the `test/dao.sh` part 2 chain rows (Q-S7-19 (a)) and the rdao ring zkKey 17, 36, 2 (Q-S7-20 (a)) (section 6, S7 s5 notes). `make -B check` serial EXIT 0, 126 lines. The changes from the s5 step0 log: examples 59 -> 60 (`restrictdao.lang`); check refusals 188 -> 193 and kit-only refusals 22 -> 23 (the `call` rows); evals 221 -> 235 (14 restrictdao rows); the new line `rdao size rows: runtime 19632 bytes (limit 24576), initcode 19667 bytes (limit 49152)`; the dao gas row adds `rdao enact 128344`; dao chain 33 -> 63 steps; 0 failures. Mutants: 9, all KILLED; the gate after the restores is byte for byte the s5 gate log. s6 NEXT: a survey of the open entries of Q-S6-8 (a) (`propose`, `openTally`) and the other setters of Q-S7-18 (a). s6 survey (2026-10-26): the base is 26be5ba (tree 7f2765de), the USER s5 commit; the STEP 0 gate is EXIT 0, byte for byte the s5 gate log. Docs only: the probes s6a to s6c (section 16, S7 s6 survey). restrictdao has the `ballot` (the 3 casts), the `openTally` (the open of T0 in `enact`) and the `enact` of Q-S6-8 (a), and no `propose`. Of the pids 1 to 16, only 1 and 16 have the 3 rdao ring counters below K = 8. The 4 U256 setters and a plain `propose` give a runtime of 20328 bytes. The kit build refuses an Addr field in a `call`. The USER ruled Q-S7-21 to Q-S7-24 (a). s7 NEXT: `propose` with the pid and the counter words (Q-S7-22 (a)) and the 4 U256 setters by kind (Q-S7-23 (a)); `openTally` stays in `enact` (Q-S7-24 (a)); then S8. s7 DONE (2026-10-27): the base is 5282f47 (the USER s6 commit; the USER edit of the Q-S7-22 (a) text is the s7 ruling, section 6 "S7 s7 notes"). restrictdao has `propose` (the pid, the counter bounds before each `hpAt`, the kind), ctxOf and nullOf at `pid s`, the `enact` Out by kind and the views `pidNow` and `kindNow`; `ballottool rdao16`; 14 eval rows (R1 proposeR1, R2 sealR2) and 26 chain steps. The USER ruled Q-S7-26 (a) (the proposer is the t8n key address), Q-S7-27 (a) (a breakdown probe before a cut) and Q-S7-28 (a) (sigOk takes the word w: the rdao runtime 30097 to 23839 bytes; O18). The serial gate is EXIT 0: evals 235 to 249, the rdao size row 23839/23879, the new gas row `rdao propose 124712`, the chain 89 steps, 0 failures. Mutants: 10, all KILLED; after the restores the gate log is byte for byte the s7 gate log. S7 CLOSED. S8 NEXT: the mutants, SPEC, VALIDATION and the close (row S8). |
-| S8 | mutants, SPEC, VALIDATION, close | |
+| S8 | mutants, SPEC, VALIDATION, close | s1 kickoff DONE (2026-10-27): STEP 0 HEAD 525e855 (tree ccaec476, the USER S7 commit with the duration fix of section 6); the USER ruled it the S8 base. Serial gate EXIT 0: evals 257, rdao runtime 23909 (limit 24576). Survey and Q-S8-1 to Q-S8-7 in section 17; docs only. s2 NEXT after the USER rules. |
 
 ## 10. Open items
 
@@ -1912,3 +1926,159 @@ s4 commit. The STEP 0 gate is byte for byte the s4 gate log. Probe facts:
   (a) is this check. (b) A separate entry `openTally` writes yes and no
   to the state, and `enact` reads them: two transactions, two new state
   words and more rows. RECOMMEND: (a). RULED: (a) (USER 2026-10-26).
+
+## 17. Questions of S8
+
+S8 s1 (2026-10-27, claude2, docs only) surveys the close: the mutants,
+SPEC.md, docs/VALIDATION.md, docs/STATUS.md and the open items. No probe.
+
+STEP 0 facts:
+
+- HEAD is 525e855, the USER S7 commit. Its tree is ccaec476, not the
+  staged S7 s7 tree f9ac09fa. `git diff --stat f9ac09fa HEAD`:
+  examples/restrictdao.lang (19 lines) and test/eval/expect.txt (8 rows):
+  the duration fix (section 6, S7 USER fix). A change outside docs/ is a
+  STEP 0 FAIL. The USER ruled (2026-10-27): 525e855 is the S8 base, and
+  STEP 1 and STEP 2 continue.
+- `git status --porcelain`: only `.kanon-exec/`, `.kanon-replies/` and
+  `.kanon-wait/`. Free disk: 68 GiB.
+- Gate: ~/Documents/restrict-lang-S8-s1-step0-gate.log (serial `make -B
+  check`): EXIT 0, 126 lines. Against the S7 s7 log, 3 lines change:
+  evals 249 to 257, the rdao size row 23839/23879 to 23909/23949, and the
+  gas row `rdao propose` 124712 to 124761. This log is the S8 baseline.
+
+Mutant facts (~/Documents/restrict-lang-work/S3-mutants.out to
+S7-s7-mutants.out, and the S7 row for s3 to s5):
+
+- S3: 7 KILLED (L6: M1 to M5; L9: M6 and M7).
+- S4: 6 KILLED (L1, L3 two, L4, O5, the Broken guard) and 1 equivalent
+  (M7 `RULES_HELPERS 9u`, section 3.3).
+- S5: 6 KILLED (L2, L7 two, L8 two, the class rule).
+- S6: 8 KILLED (holderCap reads the word, `issue` reads the issuer map,
+  setCapN, L10 `tallyEnc`, `decide` on a tie, the ballot ctx, the
+  charter `active`, `yn` on a tie).
+- S7: s2 8 KILLED (the kit `call` form, the to-Nat lowering, the env line
+  of `run`), s3 7 KILLED and 1 equivalent, s4 14 KILLED, s5 9 KILLED,
+  s7 10 KILLED.
+- Sum: 75 KILLED, 2 equivalent, 0 SURVIVED.
+- The law sites of section 5 with a mutant: L1, L2, L3, L4, L6, L7, L8,
+  L9, L10, and the charter part of L12 (S6 M7 and M8). No mutant: L5 (the
+  mirror rows of test/restrict.sh, lines 124 to 145: after the mint and
+  the moves, the token balances equal the restrictkit mirror), L11 (the
+  squash path: the refusals test/check/tally-leak.lang, enc-leak.lang,
+  open-leak.lang and zk-leak.lang), the Lan unit, descent and uniqueness
+  part of L12 (ported in S2), and `proposalValueOk` (the S7 USER fix).
+
+Doc facts:
+
+- SPEC.md (265 lines): sections 5 and 6 have rows for S3 to S6. No row
+  for the S7 work: the kit `call` form, the to-Nat lowering, `selfWord`
+  and the env line of `run`, `hpAt`, the kit contracts
+  `examples/restrictkit.lang` and `examples/daokit.lang`, and
+  `examples/restrictdao.lang` (`propose`, `pid`, `kind`, the 4 proposal
+  kinds, `proposalValueOk`, the views `pidNow` and `kindNow`, castSig,
+  castSlot, castSeal and `enact`). The template text stays in sections 1
+  (`<the domain>`), 2 (the refusal list), 3, 4, 7 (an empty encoding
+  table), 8, 9 (`O1. <question>`) and 10 (the template milestones). The
+  status line says "draft before milestone M0".
+- docs/VALIDATION.md (430 lines): the text is the inherited orbit-lang
+  final gate (date 2026-10-21, "the final gate of orbit-lang", 159
+  evals), with the sections "Proofs and ecrecover (S7)" and "Ring sizes
+  and gas of the written contract (S9 B3)". It has no restrict-lang row:
+  no counts of S2 to S7, no size rows, no gas rows, no chain steps and no
+  mutants.
+- docs/STATUS.md (93 lines): "Implemented" has S2 to S6, not S7. The
+  head paragraph, "Remaining M0 work", "Known limits" and "Internal
+  boundaries" are template text.
+- Open items (section 10): O17 (`cls` by hand) and O18 (the 6.3 KB State
+  argument) are open. O6 is done (S7, Q-S7-8 (a): the abi row checks the
+  kit selectors against the EIP list) and O8 is done (S5, Q-S5-1 (a):
+  `zkHpAt`), but both say "Kept". O3 is already RULED and O9 already
+  CLOSED. The remaining items are design facts marked "Kept".
+- Sibling close (format only): virtu-lang 47e4ac4 ("S7: the marketplace
+  example, mutants Y1 to Y5, the close") is one commit: the example, the
+  mutants, README, PLAN, STATUS, the gate counts and "The plan is
+  closed."
+
+Questions:
+
+- Q-S8-1 the S8 units. (a) Four units, one USER commit each: s2 the
+  mutants of Q-S8-2 (serial gate, then the restore cmp; also the O18
+  probe if Q-S8-6 (a)); s3 SPEC (Q-S8-3); s4 VALIDATION and STATUS
+  (Q-S8-4, Q-S8-5); s5 the close: the open items (Q-S8-7), the final
+  serial gate, refresh SPEC, VALIDATION and STATUS from that passing
+  gate and mark them final, README, the S8 row "S8 CLOSED" and
+  "The plan is closed" (the format of virtu-lang 47e4ac4). (b) Three units: s2 the mutants;
+  s3 SPEC, VALIDATION and STATUS; s4 the close. (c) One unit, as
+  virtu-lang: all of S8 in s2. RECOMMEND: (a). The VALIDATION rewrite and
+  the SPEC fill each need about one session of context.
+- Q-S8-2 the mutant set. (a) 5 new mutants. Each must be KILLED. A
+  SURVIVED mutant gets a new guest test row (an eval row or a guest check
+  file, not a host test), and then the mutant runs again.
+  N1 L5: the restrictkit `transferred` entry does not write the state of
+  `step` (the mirror keeps the old balances). The killer must be a mirror
+  row of test/restrict.sh or a run row.
+  N2 L11: the kernel accepts the elimination that
+  test/check/tally-leak.lang refuses. s2 names the guard site in
+  src/front first.
+  N3 L12: a ported L12 row (the Lan unit or descent) with a wrong term.
+  s2 names the site first.
+  N4 `proposalValueOk`: the bound 18446744073709551615u becomes
+  18446744073709551616u. Expected killers: proposeLockOver and
+  proposeRegOver.
+  N5 `proposalValueOk`: `u256Le k 1u` becomes `u256Le k 2u` (setLockD
+  keeps all U256 values). Expected killer: proposeLockOver.
+  (b) N4 and N5 only. L5, L11 and L12 keep their present tests, and
+  VALIDATION says that they have no mutant. (c) No new mutant: the record
+  of S3 to S7 is the close record. RECOMMEND: (a).
+- Q-S8-3 SPEC.md. (a) Fill each template section from this plan: 1 the
+  purpose (sections 1 and 2), 2 the program form and the refusal list
+  (the refusal codes of the gate), 3 and 4 the deviations and the
+  structures (section 4), 7 the contract (section 7: the storage, the
+  entries, the guards and the erasure), 8 the host (tcc-evm-contract,
+  the PIN and the probe facts), 9 the open items (section 10, with the
+  RULED marks) and 10 the milestones (the slices S0 to S8). Add the S7
+  rows to sections 5 and 6. Keep the status line at "S8 in progress"
+  until the close unit; after its final gate passes, set "closed at S8"
+  with the date. Delete each "> Write here" line. (b) The S7 rows and
+  the status line only. Each template section gets one line that points to this
+  plan. (c) The S7 rows only. RECOMMEND: (a).
+- Q-S8-4 docs/VALIDATION.md. (a) Rewrite it for restrict-lang. Until the
+  close unit, the head paragraph names the latest passing gate, gives
+  its counts and marks S8 in progress. After the final gate passes,
+  the close unit refreshes all counts, size and gas rows, and chain
+  steps from that log and marks S8 final. Then one section for
+  each slice S0 to S8 with its gate counts and changes (from the rows of
+  section 9 and the gate logs ~/Documents/restrict-lang-S*-gate.log).
+  Then the tables: the contract sizes (rdao 23909/23949 and the other
+  written contracts), the gas rows, the chain steps (restrict, dao) and
+  the mutants (Q-S8-2). The inherited orbit-lang text goes. One line
+  names the kernel base (intent-lang ef5abe8) and its VALIDATION. (b)
+  Keep the inherited text under the heading "Inherited (lang-template,
+  orbit-lang)", and add the restrict-lang sections above it. RECOMMEND:
+  (a). The inherited counts (159 evals) are not the counts of this repo
+  at any slice.
+- Q-S8-5 docs/STATUS.md. (a) Add S7 and the completed S8 work to
+  "Implemented". Fill the head paragraph (S0 to S7 done, S8 in progress;
+  the close unit marks S8 done and the plan closed after its final gate
+  passes), "Remaining M0 work"
+  (O17 and O18), "Known limits" (the rdao runtime 23909 of 24576, the
+  ring of 3 points and hc <= 7, durations at most 2^64 - 1, a proposal
+  lapses at the next `propose`, the chain rows test the test token only
+  (O7), `investorCountry` is not served (O12)) and "Internal boundaries"
+  (the src/front module groups, the test tools and the gate scripts).
+  (b) Add S7 and S8 only. RECOMMEND: (a).
+- Q-S8-6 O18. (a) Probe in s2 (docs only, on a scratch tree from `git
+  archive HEAD`): a def with a State argument and `zkVerifyAt`, with and
+  without the argument; compare the lowered sizes and name the lowering
+  step. A fix is a new question after the probe, because it changes src
+  and the size rows. (b) Keep O18 open at the close. SPEC section 9 and
+  the STATUS "Known limits" record the facts (6.3 KB; sigOk takes the
+  word, Q-S7-28 (a)). RECOMMEND: (b). The runtime is 667 bytes under the
+  limit, and S8 adds no contract code.
+- Q-S8-7 the open items. (a) Mark O6 CLOSED (S7, Q-S7-8 (a)) and O8
+  CLOSED (S5, Q-S5-1 (a)). O17 and O18 stay open (Q-S8-6) and go to SPEC
+  section 9 and STATUS. Preserve the existing RULED mark on O3 and
+  CLOSED mark on O9; keep the other design facts "Kept". (b)
+  As (a), and the close also marks O17 and O18 "Kept: not in this plan".
+  RECOMMEND: (a).
