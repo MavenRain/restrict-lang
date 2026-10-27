@@ -1,0 +1,2 @@
+-- The call form is a kit item: langc check refuses it, langc --kit check admits it (S7 s5).
+call setCapN (to : Addr) (v : U256)

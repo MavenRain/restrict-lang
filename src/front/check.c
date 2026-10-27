@@ -3065,12 +3065,12 @@ static const char *name_owner(const Checker *c, const char *name) {
       return "a domain family";
   }
   for (i = 0; i < m->ctor_count; i++) {
-    for (j = 0; !m->ctors[i].event && j < m->ctors[i].field_count; j++) {
+    for (j = 0; !m->ctors[i].event && !m->ctors[i].call && j < m->ctors[i].field_count; j++) {
       if (strcmp(m->ctors[i].fields[j].name, name) == 0)
         return "a domain field";
     }
     if (m->ctors[i].name != NULL && strcmp(m->ctors[i].name, name) == 0)
-      return m->ctors[i].event ? "an event" : "a domain constructor";
+      return m->ctors[i].event ? "an event" : m->ctors[i].call ? "a call" : "a domain constructor";
   }
   i = find_def(m, name);
   if (i == NO_DEF)
@@ -3449,6 +3449,7 @@ static int check_ctor(Checker *c, uint32_t fam, const Ctor *ctor, uint32_t slot)
   ci->fields = fields;
   ci->field_count = (uint32_t)points;
   ci->event = 0;
+  ci->call = 0;
   ci->interval_count = (uint32_t)(ctor->field_count - points);
   ci->boundary = boundary;
   ci->result = result;
@@ -3457,12 +3458,16 @@ static int check_ctor(Checker *c, uint32_t fam, const Ctor *ctor, uint32_t slot)
 
 /* An event (slice K4a1): a constructor of Out with fields of the ABI word
    types Nat, Flag, U256 and Addr. The field names are local: they are not
-   projections and not core names. */
+   projections and not core names. A call (S7 s5, Q-S7-17 (a)) has the
+   same form and the code REFUSE_CALL: field 0 is the target and must be an
+   Addr. The lowering gives a CALL to the target, not a LOG. */
 static int check_event(Checker *c, uint32_t fam, const Decl *d) {
   Machine *m = c->m;
   const Ctor *ctor = &d->ctors[0];
   FieldInfo *fields = arena_alloc(m->arena, (ctor->field_count + 1u) * sizeof *fields);
   CtorInfo *ci = &m->ctors[m->ctor_count];
+  const char *code = d->is_call ? "REFUSE_CALL" : "REFUSE_EVENT";
+  const char *form = d->is_call ? "call" : "event";
   size_t j;
   m->def = d->name;
   if (fields == NULL)
@@ -3470,7 +3475,9 @@ static int check_event(Checker *c, uint32_t fam, const Decl *d) {
   if (!name_free(c, d->name))
     return 0;
   if (ctor->field_count > ENTRY_PARAMS_MAX)
-    return FAIL(c, "REFUSE_EVENT", "the event %s has %u fields, the limit is %u", d->name, (unsigned)ctor->field_count, ENTRY_PARAMS_MAX);
+    return FAIL(c, code, "the %s %s has %u fields, the limit is %u", form, d->name, (unsigned)ctor->field_count, ENTRY_PARAMS_MAX);
+  if (d->is_call && ctor->field_count == 0u)
+    return FAIL(c, code, "the call %s has no fields; field 0 is the target and must have the type Addr", d->name);
   for (j = 0; j < ctor->field_count; j++) {
     uint64_t level = 0;
     const Core *t = check_type(c, ctor->fields[j].type, &level);
@@ -3478,10 +3485,12 @@ static int check_event(Checker *c, uint32_t fam, const Decl *d) {
     if (v == NULL)
       return 0;
     if (!val_is(v, OP_NAT) && !val_is(v, OP_FLAG) && !val_is(v, OP_U256) && !val_is(v, OP_ADDR))
-      return FAIL(c, "REFUSE_EVENT", "the event field %s must have an ABI word type: Nat, Flag, U256 or Addr, found %s", ctor->fields[j].name, show(c, v));
+      return FAIL(c, code, "the %s field %s must have an ABI word type: Nat, Flag, U256 or Addr, found %s", form, ctor->fields[j].name, show(c, v));
+    if (d->is_call && j == 0u && !val_is(v, OP_ADDR))
+      return FAIL(c, code, "the call field %s is the target and must have the type Addr, found %s", ctor->fields[j].name, show(c, v));
     for (size_t k = 0; k < j; k++)
       if (strcmp(ctor->fields[j].name, ctor->fields[k].name) == 0)
-        return FAIL(c, "REFUSE_EVENT", "%s is already a field of the event %s", ctor->fields[j].name, d->name);
+        return FAIL(c, code, "%s is already a field of the %s %s", ctor->fields[j].name, form, d->name);
     fields[j].name = ctor->fields[j].name;
     fields[j].type = t;
     fields[j].recursive = 0;
@@ -3496,7 +3505,8 @@ static int check_event(Checker *c, uint32_t fam, const Decl *d) {
   ci->family = fam;
   ci->fields = fields;
   ci->field_count = (uint32_t)ctor->field_count;
-  ci->event = 1;
+  ci->event = !d->is_call;
+  ci->call = d->is_call;
   ci->interval_count = 0u;
   ci->boundary = NULL;
   ci->result = NULL;
@@ -4660,7 +4670,7 @@ static int check_rules(Checker *c, const Decl *d) {
 
 static int check_decl(Checker *c, const Decl *d) {
   if ((d->is_event || d->is_state) && guest(c))
-    return kit_refused(c, d->is_state ? "the state form" : "an event");
+    return kit_refused(c, d->is_state ? "the state form" : d->is_call ? "the call form" : "an event");
   if (d->is_event)
     return 1;
   if (d->is_state)
@@ -5136,9 +5146,10 @@ static int run_call(Machine *m, Run *r, uint32_t line, char *const *word, uint32
   fprintf(out, "%u %s ok\n", r->calls, name);
   for (v = v->args[0]->args[1]; val_is(v, OP_CONS); v = v->args[1]) {
     const Value *o = v->args[0];
+    const CtorInfo *ci = val_is(o, OP_CTOR) && o->inst < m->ctor_count ? &m->ctors[o->inst] : NULL;
     if (!print_value(m, o, r->buf))
       return 1;
-    fprintf(out, "  %s%s\n", val_is(o, OP_CTOR) && o->inst < m->ctor_count && m->ctors[o->inst].event ? "event " : "", r->buf);
+    fprintf(out, "  %s%s\n", ci != NULL && ci->event ? "event " : ci != NULL && ci->call ? "call " : "", r->buf);
   }
   return 0;
 }

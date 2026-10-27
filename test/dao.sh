@@ -12,6 +12,13 @@
 # and a later one) and enact (S10 b6); the gate does not check it. It needs evm
 # (go-ethereum), bc, od, build/slottool and build/ballottool. Run it from the
 # kit root.
+#
+# The second prestate (S7 s5) comes next. examples/restrictdao.lang is at the
+# address 0x..da and examples/restrictkit.lang is at the kitAddr word
+# 0x..7265636569766572. The 3 ballots of `build/ballottool rdao` (the context
+# word is hash(0x..da, 1)) go to restrictdao, and its enact calls setCapN 4u on
+# restrictkit. The kit word pCapN (storage slot 0x0b) must change from 2 to 4.
+# A setCapN call from the voter to restrictkit reverts (fromDao is false).
 set -u
 fail=0
 steps=0
@@ -87,12 +94,14 @@ gasrow() {
   gasrows="$gasrows, $1 $gas"
 }
 
-# cast V: the 4 calls of voter V at BLOCK 0.
+# cast V [CALL]: the 4 calls of voter V at BLOCK 0 with the helper CALL (call
+# when it is not set, rdao for the second prestate).
 cast() {
-  call ok castSig 0 $(sig "$1")
-  call ok castSlot 0 $(slot "$1" 0)
-  call ok castSlot 0 $(slot "$1" 1)
-  call ok castSeal 0 $(seal "$1")
+  _c=${2:-call}
+  $_c ok castSig 0 $(sig "$1")
+  $_c ok castSlot 0 $(slot "$1" 0)
+  $_c ok castSlot 0 $(slot "$1" 1)
+  $_c ok castSeal 0 $(seal "$1")
 }
 
 if ! deploy "$prog"; then
@@ -158,6 +167,94 @@ call ok enact 11 $(opening 2)
 gasrow enact
 call "out 4" windowNow 0
 call revert enact 11 $(opening 2)
+
+# The second prestate (S7 s5): restrictdao at 0x..da, restrictkit at the
+# kitAddr word. The dump of a step holds the storage of the two accounts, and
+# slots merges it: keep puts the storage of each account in its own file.
+daoacc=00000000000000000000000000000000000000da
+kitacc=0000000000000000000000007265636569766572
+
+# rdeploy: deploy restrictkit, then restrictdao. tmp/WHO.code and tmp/WHO.raw
+# (WHO is kit or dao) get the code and the storage of each.
+rdeploy() {
+  deploy examples/restrictkit.lang && cp "$tmp/code" "$tmp/kit.code" && cp "$tmp/raw" "$tmp/kit.raw" &&
+    deploy examples/restrictdao.lang && cp "$tmp/code" "$tmp/dao.code" && cp "$tmp/raw" "$tmp/dao.raw"
+}
+
+# on WHO: the next step goes to WHO (dao or kit) with the code and the storage
+# of WHO. alloc gets the other account with its code and storage.
+on() {
+  case $1 in
+    dao) receiver=$daoacc prog=examples/restrictdao.lang _o=kit _oacc=$kitacc ;;
+    kit) receiver=$kitacc prog=examples/restrictkit.lang _o=dao _oacc=$daoacc ;;
+  esac
+  cp "$tmp/$1.code" "$tmp/code"
+  cp "$tmp/$1.raw" "$tmp/raw"
+  alloc=",\"0x$_oacc\":{\"balance\":\"0x0\",\"code\":\"0x$(cat "$tmp/$_o.code")\",\"storage\":{$(
+    awk '{ printf "%s\"0x%s\":\"0x%s\"", (NR > 1 ? "," : ""), $1, $2 }' "$tmp/$_o.raw")}}"
+}
+
+# keep: tmp/dao.raw and tmp/kit.raw get the storage rows of each account of
+# the last dump. An account line of the dump is `"0xADDR": {`; `evm run` can
+# write ADDR with capital letters.
+keep() {
+  awk -F'"' -v d="$daoacc" -v k="$kitacc" -v t="$tmp" '
+    BEGIN { f[d] = t "/dao.raw"; f[k] = t "/kit.raw"; printf "" >(f[d]); printf "" >(f[k]) }
+    length($2) == 42 && $3 ~ /\{/ { a = tolower(substr($2, 3)); next }
+    NF >= 5 && length($2) == 66 && substr($2, 1, 2) == "0x" && (a in f) { print substr($2, 3), $4 >(f[a]) }' "$tmp/dump"
+}
+
+# rdao and rkit WANT NAME BLOCK ARGS...: call to restrictdao or to restrictkit
+# on the second prestate.
+rdao() { on dao; call "$@"; keep; }
+rkit() { on kit; call "$@"; keep; }
+
+# capn WANT: the kit word pCapN (slot 0x0b, field 11 of the kit State) must
+# equal WANT (as hexnorm).
+capn() {
+  steps=$((steps + 1))
+  _v=$(awk -v s="$(pad b)" '$1 == s { print $2 }' "$tmp/kit.raw")
+  [ "$(hexnorm "${_v:-0}")" = "$1" ] || { echo "FAIL dao pCapN (step $steps): want $1, got ${_v:-0}"; fail=$((fail + 1)); }
+}
+
+{ build/ballottool rdao && build/ballottool words; } >"$tmp/words" || { echo "FAIL dao: ballottool rdao"; exit 1; }
+if ! rdeploy; then
+  echo "FAIL dao rdao deploy: $(head -n 1 "$tmp/dump")"
+  rm -rf "$tmp"
+  echo "dao chain: $steps steps, $((fail + 1)) failures"
+  exit 1
+fi
+rinit=$(build/langc --kit build examples/restrictdao.lang)
+ribytes=$((${#rinit} / 2))
+rrbytes=$(awk '{ print length($0) / 2; exit }' "$tmp/dao.code")
+echo "rdao size rows: runtime $rrbytes bytes (limit 24576), initcode $ribytes bytes (limit 49152)"
+[ "$rrbytes" -le 24576 ] || { echo "FAIL rdao size: runtime $rrbytes > 24576 (O15)"; fail=$((fail + 1)); }
+[ "$ribytes" -le 49152 ] || { echo "FAIL rdao size: initcode $ribytes > 49152 (O15)"; fail=$((fail + 1)); }
+
+# The 3 casts, then the tally views (T0 = ty, T1 = tn).
+cast 0 rdao
+cast 1 rdao
+cast 2 rdao
+rdao "out 3" castCount 0
+_k=0
+for _n in tyc1x tyc1y tyc2x tyc2y tnc1x tnc1y tnc2x tnc2y; do
+  rdao "out $(hw "$_n")" tallyWord 0 "${_k}u"
+  _k=$((_k + 1))
+done
+
+# enact: m 2 (yes 2, no 1) sets the window 6 -> 4 and calls setCapN 4u on
+# restrictkit (pCapN 2 -> 4). Before it, a setCapN from the voter reverts.
+# A second enact reverts.
+rdao "out 6" windowNow 0
+capn 2
+rkit revert setCapN 0 4u
+capn 2
+rdao ok enact 11 $(opening 2)
+gasrow "rdao enact"
+rdao "out 4" windowNow 0
+capn 4
+rdao revert enact 11 $(opening 2)
+capn 4
 
 rm -rf "$tmp"
 echo "dao gas rows: deploy $dgas$gasrows"

@@ -1,0 +1,2 @@
+-- The field names of a call must be different (S7 s5).
+call setPair (to : Addr) (v : U256) (v : U256)

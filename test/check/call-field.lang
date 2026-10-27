@@ -1,0 +1,2 @@
+-- A call field must have an ABI word type: Nat, Flag, U256 or Addr (S7 s5).
+call setCapN (to : Addr) (xs : List Nat)

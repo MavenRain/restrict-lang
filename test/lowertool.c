@@ -145,6 +145,63 @@ static int order_regression(const char *name, const char *defs, int local_cond) 
   return ok;
 }
 
+/* The first statement of kind KIND in B (the IF branches too), or NULL. */
+static const IrStmt *first_statement(IrBlock b, IrStmtKind kind) {
+  for (size_t i = 0; i < b.count; i++) {
+    const IrStmt *s = b.items[i];
+    const IrStmt *t = s->kind == kind ? s : first_statement(s->body, kind);
+    t = t != NULL ? t : first_statement(s->otherwise, kind);
+    if (t != NULL) return t;
+  }
+  return NULL;
+}
+
+/* The expression that the SET of LOCAL at the top of B puts, or NULL. */
+static const IrExpr *set_of(IrBlock b, uint32_t local) {
+  for (size_t i = 0; i < b.count; i++)
+    if (b.items[i]->kind == IR_STMT_SET && b.items[i]->local == local) return b.items[i]->expr;
+  return NULL;
+}
+
+/* S7 s5: the entry body holds exactly one CALL. Its name is CALLEE, it sends
+   FIELDS argument words, and its target is a local set to the TOKEN word. */
+static int call_regression(const char *name, const char *defs, const char *callee, size_t fields) {
+  const char *prefix = "state State := makeState (counter : Nat)\n"
+    "def init : State := makeState 0\n";
+  char source[4096];
+  Arena arena;
+  Diag diag;
+  DeclList decls;
+  Machine machine;
+  IrProgram program = {NULL, 0};
+  int ok;
+  snprintf(source, sizeof source, "%s%s", prefix, defs);
+  arena_init(&arena, (size_t)1 << 25);
+  diag_init(&diag);
+  ok = front_load(&arena, name, source, strlen(source), &decls, &diag)
+    && check_program(&arena, &decls, &machine, &diag, CHECK_KIT);
+  if (ok) {
+    const CtorInfo *ci = &machine.ctors[machine.families[machine.state_family].first_ctor];
+    ok = lower_entries(&machine, ci, &program, NULL);
+  }
+  ok = ok && diag.code == NULL && program.func_count == 1;
+  if (ok) {
+    IrBlock body = program.funcs[0].body;
+    const IrStmt *call = first_statement(body, IR_STMT_CALL);
+    const IrExpr *target = call != NULL && call->expr != NULL && call->expr->kind == IR_EXPR_LOCAL
+      ? set_of(body, call->expr->local) : NULL;
+    ok = statements(body, IR_STMT_CALL) == 1 && strcmp(call->name, callee) == 0
+      && call->field_count == fields
+      && target != NULL && target->kind == IR_EXPR_WORD && target->word[31] == 0xaa;
+  }
+  if (!ok) {
+    fprintf(stderr, "FAIL lower %s (functions %zu)\n", name, program.func_count);
+    if (diag.set) diag_print(&diag, stderr);
+  }
+  arena_release(&arena);
+  return ok;
+}
+
 static int abi_mode_regression(const char *name, const char *source, const char *code, const char *expected, int json) {
   Arena arena;
   Diag diag;
@@ -485,6 +542,10 @@ int main(void) {
     "some (pair (makeState 9) (cons (pay " TOKEN " " TOKEN " 7u) nil))\n", 0);
   ok &= order_regression("call-order-stored-pull", ENTRY
     "some (pair (makeState 9) (flagIf (natEq (counter s) 0) nil (cons (pull " TOKEN " " TOKEN " " TOKEN " 7u) nil)))\n", 1);
+  ok &= call_regression("call-name-setcapn", "call setCapN (to : Addr) (v : U256)\n" ENTRY
+    "some (pair (makeState 9) (cons (setCapN " TOKEN " 7u) nil))\n", "setCapN", 1);
+  ok &= call_regression("call-name-pay", ENTRY
+    "some (pair (makeState 9) (cons (pay " TOKEN " " TOKEN " 7u) nil))\n", "transfer", 2);
   if (ok) puts("lower regressions: passed");
   return ok ? 0 : 1;
 }

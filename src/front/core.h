@@ -286,6 +286,7 @@ typedef struct {
   const FieldInfo *fields;
   uint32_t field_count; /* the point fields only */
   int event; /* an event of the program, a constructor of Out (slice K4a1) */
+  int call;  /* a call of the program (S7 s5): a constructor of Out, field 0 the target */
   /* A path constructor (S4 R1 (a)): 1 or 2 interval fields after the
      point fields, and the boundary, an OP_SYSTEM core over the
      parameters, the point fields and the interval fields. A point

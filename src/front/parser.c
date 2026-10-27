@@ -159,6 +159,7 @@ static int starts_atom(TokKind kind) {
     case TOK_KW_AXIOM:
     case TOK_KW_STATE:
     case TOK_KW_EVENT:
+    case TOK_KW_CALL:
     case TOK_KW_AND:
     case TOK_KW_COFAMILY:
     case TOK_KW_SEALED:
@@ -399,6 +400,7 @@ static const Term *parse_atom(Parser *p) {
     case TOK_KW_AXIOM:
     case TOK_KW_STATE:
     case TOK_KW_EVENT:
+    case TOK_KW_CALL:
     case TOK_KW_AND:
     case TOK_KW_COFAMILY:
     case TOK_KW_SEALED:
@@ -568,7 +570,8 @@ static int parse_family(Parser *p, Decl *d) {
 }
 
 /* `event NAME group*` (slice K4a1): a family declaration with one
-   constructor, the event. The checker adds the constructor to Out. */
+   constructor, the event. The checker adds the constructor to Out. A
+   `call NAME group*` (S7 s5) has the same form and the mark is_call. */
 static int parse_event(Parser *p, Decl *d) {
   size_t cap = 0;
   Ctor *ctor;
@@ -580,7 +583,7 @@ static int parse_event(Parser *p, Decl *d) {
   d->params = NULL;
   d->param_count = 0;
   d->index = NULL;
-  d->name = take_name(p, "an event name");
+  d->name = take_name(p, d->is_call ? "a call name" : "an event name");
   if (d->name == NULL) return 0;
   p->def = d->name;
   ctor = grow(p, NULL, 0, &cap, sizeof *ctor);
@@ -652,6 +655,7 @@ static int parse_and(Parser *p, Decl *d) {
   d->col = tok->col;
   d->is_state = 0;
   d->is_event = 0;
+  d->is_call = 0;
   d->is_sealed = 0;
   d->is_law = 0;
   return parse_family(p, d);
@@ -664,7 +668,8 @@ static int parse_decl(Parser *p, Decl *d) {
   d->line = tok->line;
   d->col = tok->col;
   d->is_state = tok->kind == TOK_KW_STATE;
-  d->is_event = tok->kind == TOK_KW_EVENT;
+  d->is_event = tok->kind == TOK_KW_EVENT || tok->kind == TOK_KW_CALL;
+  d->is_call = tok->kind == TOK_KW_CALL;
   d->is_sealed = 0;
   d->is_law = 0;
   switch (tok->kind) {
@@ -683,7 +688,8 @@ static int parse_decl(Parser *p, Decl *d) {
     case TOK_KW_FAMILY:
     case TOK_KW_STATE:
     case TOK_KW_COFAMILY: return parse_family(p, d);
-    case TOK_KW_EVENT: return parse_event(p, d);
+    case TOK_KW_EVENT:
+    case TOK_KW_CALL: return parse_event(p, d);
     case TOK_KW_RULES: return parse_rules(p, d);
     case TOK_EOF:
     case TOK_IDENT:

@@ -1,0 +1,2 @@
+-- A call must have field 0, the target (S7 s5).
+call ping

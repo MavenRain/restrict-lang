@@ -32,6 +32,15 @@
    and the proposal id. */
 #define SELF 0xc0ull
 #define PID 1ull
+/* The address word of restrictdao in test/dao.sh (S7 s5). */
+#define DAO_SELF 0xdaull
+/* The zkKey of each ring member. daokit: zkKey 0, 1, 2. restrictdao
+   (Q-S7-20 (a)): zkKey 17, 36, 2, with the H_p counters 0, 7, 3 at the
+   context word hash(0x..da, PID), each below the RESTRICT_HP_TRIES tries of
+   the chain H_p loop. Counter 0 kills a loop that starts at 1, counter 7 a
+   loop of K - 1 tries. */
+static const uint32_t dao_keys[N] = {0u, 1u, 2u};
+static const uint32_t rdao_keys[N] = {17u, 36u, 2u};
 /* The known answer of ballotCtx for voter 0: a recomputation would follow a
    change of the tag, this word does not. */
 #define CTX0 "0x8a5fa4ee8b9368d730caf7b8c2f36f9b5271f71e4d63a8de27876da1a936f4e1"
@@ -126,14 +135,14 @@ static int ballot_sign(U256 *sig, const G1 *ring, const U256 *x, const U256 *w, 
   return w == NULL ? blsag_sign(sig, ring, N, x, pid, m) : blsag_sign_at(sig, ring, N, x, w, m);
 }
 
-/* The ballot of VOTER for CHOICE. The key image does not depend on the
-   message, so a first signature gives I, and so ctx, before the slots
-   exist. Fixed entropy for reproducible vectors only, never a live ballot.
-   1, or 0 when a step refuses. */
-static int cast(Ballot *b, const G1 *ring, const G1 *pk, const U256 *pid, const U256 *w, uint32_t voter, uint32_t choice) {
+/* The ballot of VOTER for CHOICE, signed with zkKey KEY. The key image does
+   not depend on the message, so a first signature gives I, and so ctx,
+   before the slots exist. Fixed entropy for reproducible vectors only, never
+   a live ballot. 1, or 0 when a step refuses. */
+static int cast(Ballot *b, const G1 *ring, const G1 *pk, const U256 *pid, const U256 *w, uint32_t voter, uint32_t key, uint32_t choice) {
   U256 x;
   U256 seed;
-  blsag_key(&x, voter);
+  blsag_key(&x, key);
   blsag_key(&seed, 40u + voter);
   if (!ballot_sign(b->sig, ring, &x, w, pid, pid))
     return 0;
@@ -404,8 +413,11 @@ static void ballot_words(uint32_t v, const Ballot *b) {
    are the intent-lang form (S10 b2): poll 0 in the place of the proposal id
    and no context word, because daokit.lang verifies them with `zkVerify
    ring poll` (S7 s2, Q-S7-3 (a)). The slot ciphertexts do not depend on the
-   ctx, so the host sum tn of `ballottool words` is the same. */
-static int dao(const G1 *pk, const G1 *ring, const ThrShare *shares, const uint32_t *choice) {
+   ctx, so the host sum tn of `ballottool words` is the same. With AT
+   (`ballottool rdao`, restrict-lang S7 s5, Q-S7-19 (a)) the ring signs at
+   the context word AT (blsag_sign_at), the constants of
+   examples/restrictdao.lang. Voter i signs with zkKey KEYS[i]. */
+static int dao(const G1 *pk, const G1 *ring, const uint32_t *keys, const ThrShare *shares, const uint32_t *choice, const U256 *at) {
   static const char *const amount[3] = {"fa", "fs", "fm"};
   static const char *const opening[3] = {"oa", "os", "om"};
   Ballot b[3];
@@ -417,7 +429,7 @@ static int dao(const G1 *pk, const G1 *ring, const ThrShare *shares, const uint3
   uint32_t i;
   u256_from_u64(&w, 0u);
   for (i = 0; i < 3u; i++)
-    if (!cast(&b[i], ring, pk, &w, NULL, i, choice[i])) {
+    if (!cast(&b[i], ring, pk, &w, at, i, keys[i], choice[i])) {
       fprintf(stderr, "FAIL dao: the cast of voter %u refuses\n", i);
       return 1;
     }
@@ -551,7 +563,9 @@ int main(int argc, char **argv) {
   ThrShare shares[N];
   ThrPart parts[2];
   G1 ring[N];
+  G1 rring[N];
   G1 keys[N];
+  G1 hp;
   G1 pk;
   U256 sk;
   U256 seed;
@@ -562,11 +576,13 @@ int main(int argc, char **argv) {
   U256 x;
   U256 copied;
   U256 tampered;
+  Ballot rb;
   ElgCipher yes;
   ElgCipher no;
   char text[67];
   uint64_t m_yes = 0;
   uint64_t m_no = 0;
+  uint32_t counter;
   uint32_t v;
   int ok = 1;
   blsag_key(&sk, 5u);
@@ -576,17 +592,38 @@ int main(int argc, char **argv) {
     return 1;
   }
   for (v = 0; v < N; v++) {
-    blsag_key(&x, v);
+    blsag_key(&x, dao_keys[v]);
     elg_public(&ring[v], &x);
+    blsag_key(&x, rdao_keys[v]);
+    elg_public(&rring[v], &x);
     keys[v] = shares[v].key;
   }
   if (argc == 2 && strcmp(argv[1], "dao") == 0)
-    return dao(&pk, ring, shares, choice);
+    return dao(&pk, ring, dao_keys, shares, choice, NULL);
   u256_from_u64(&pid, PID);
+  u256_from_u64(&self, DAO_SELF);
+  thr_hash(&w, &self, &pid);
+  /* `ballottool rdao`: the ring words p0x..p2y, then the dao words at the
+     context word w. Each ring point has its H_p counter at w below the
+     RESTRICT_HP_TRIES tries of the chain loop (lower_hp), so castSig does
+     not trap on the chain (Q-S7-20 (a)). */
+  if (argc == 2 && strcmp(argv[1], "rdao") == 0) {
+    for (v = 0; v < N; v++) {
+      char px[4];
+      char py[4];
+      ok &= (blsag_hash_point_at(&hp, &counter, &rring[v], &w) && counter < RESTRICT_HP_TRIES) || fail("rdao H_p counter");
+      snprintf(px, sizeof px, "p%ux", v);
+      snprintf(py, sizeof py, "p%uy", v);
+      point("", px, py, &rring[v]);
+    }
+    if (!ok)
+      return 1;
+    return dao(&pk, rring, rdao_keys, shares, choice, &w);
+  }
   u256_from_u64(&self, SELF);
   thr_hash(&w, &self, &pid);
   for (v = 0; v < 3u; v++)
-    if (!cast(&b[v], ring, &pk, &pid, &w, v, choice[v])) {
+    if (!cast(&b[v], ring, &pk, &pid, &w, v, dao_keys[v], choice[v])) {
       fprintf(stderr, "FAIL ballot: the cast of voter %u refuses\n", v);
       return 1;
     }
@@ -626,6 +663,19 @@ int main(int argc, char **argv) {
   ok &= (thr_open(&m_yes, parts, 2u, keys, T, N, &yes, BITS) == THR_FOUND && m_yes == 2u) || fail("tally yes");
   quorum(parts, shares, &no);
   ok &= (thr_open(&m_no, parts, 2u, keys, T, N, &no, BITS) == THR_FOUND && m_no == 1u) || fail("tally no");
+  /* The ballots of `ballottool rdao` (restrict-lang S7 s5): poll 0, the ring
+     of zkKey 17, 36, 2 (Q-S7-20 (a)) signs at the context word
+     hash(0x..da, PID). The signature verifies at
+     that word, not in the poll form of daokit (blsag_verify at poll 0) and
+     not at the context word of SELF. */
+  u256_from_u64(&other, DAO_SELF);
+  thr_hash(&other, &other, &pid);
+  u256_from_u64(&x, 0u);
+  ok &= (cast(&rb, rring, &pk, &x, &other, 0u, rdao_keys[0], choice[0])
+         && blsag_verify_at(rring, N, &other, &rb.digest, rb.sig) == BLSAG_ACCEPT
+         && blsag_verify(rring, N, &x, &rb.digest, rb.sig) == BLSAG_REJECT
+         && blsag_verify_at(rring, N, &w, &rb.digest, rb.sig) == BLSAG_REJECT)
+        || fail("rdao context word");
   if (!ok)
     return 1;
   puts("ballot regressions: passed");

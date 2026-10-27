@@ -1,0 +1,2 @@
+-- Field 0 of a call is the target and must have the type Addr (S7 s5).
+call setCapN (to : U256) (v : U256)

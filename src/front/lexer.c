@@ -28,6 +28,7 @@ static const struct {
   {"Sigma", TOK_KW_SIGMA},
   {"state", TOK_KW_STATE},
   {"event", TOK_KW_EVENT},
+  {"call", TOK_KW_CALL},
   {"and", TOK_KW_AND},
   {"cofamily", TOK_KW_COFAMILY},
   {"sealed", TOK_KW_SEALED},
@@ -65,6 +66,7 @@ const char *tok_kind_name(TokKind kind) {
     case TOK_KW_SIGMA: return "'Sigma'";
     case TOK_KW_STATE: return "'state'";
     case TOK_KW_EVENT: return "'event'";
+    case TOK_KW_CALL: return "'call'";
     case TOK_KW_AND: return "'and'";
     case TOK_KW_COFAMILY: return "'cofamily'";
     case TOK_KW_SEALED: return "'sealed'";

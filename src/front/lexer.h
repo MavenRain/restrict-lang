@@ -34,6 +34,7 @@ typedef enum {
   TOK_KW_SIGMA,
   TOK_KW_STATE,
   TOK_KW_EVENT,
+  TOK_KW_CALL,   /* the call form (restrict-lang S7 s5): a CALL of Out */
   TOK_KW_AND,
   TOK_KW_COFAMILY,
   TOK_KW_SEALED, /* domain-only modifier of a family (S5) */

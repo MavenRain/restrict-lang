@@ -54,6 +54,10 @@ event-max.lang REFUSE_EVENT
 event-arity.lang TYPE_ARITY
 event-arg.lang TYPE_MISMATCH
 event-state.lang REFUSE_STATE
+call-target.lang REFUSE_CALL
+call-field.lang REFUSE_CALL
+call-empty.lang REFUSE_CALL
+call-field-name.lang REFUSE_CALL
 hash-type.lang TYPE_MISMATCH
 pairing-list.lang TYPE_MISMATCH
 pruned-op.lang NAME_UNKNOWN
@@ -101,6 +105,7 @@ kit-literal-nat.lang REFUSE_KIT
 kit-literal-word.lang REFUSE_KIT
 kit-state.lang REFUSE_KIT
 kit-event.lang REFUSE_KIT
+kit-call.lang REFUSE_KIT
 kit-entry.lang REFUSE_KIT
 kit-env.lang REFUSE_KIT
 kit-pay.lang REFUSE_KIT

@@ -37,6 +37,7 @@ restrict.lang
 ballot.lang
 blocks.lang
 daokit.lang
+restrictdao.lang
 selfenv.lang
 restrictkit.lang
 natkit.lang

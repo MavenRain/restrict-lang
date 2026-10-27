@@ -86,6 +86,7 @@ typedef struct {
   int is_rec;
   int is_state; /* the state form, a family with the keyword state (slice K3a) */
   int is_event; /* an event declaration, one constructor of Out (slice K4a1) */
+  int is_call;  /* a call declaration (S7 s5): an event form, a CALL of Out */
   int is_sealed; /* `sealed family` (S5): guest elim and fold are law-only */
   int is_law;    /* `law def` (S5): the def is law-only (rule O7) */
   int line;
