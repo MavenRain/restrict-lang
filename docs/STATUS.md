@@ -1,12 +1,12 @@
 # restrict-lang status
 
-> Write here: one paragraph. Say which milestone the build implements, and
-> which milestone it does not complete yet.
+The build implements the M0 slices S0 to S7 of docs/PLAN.md section 9:
+they are DONE. S8 (the mutants, SPEC, VALIDATION and the close) is in
+progress: s1 to s4 are DONE. The close unit (S8 s5) marks S8 DONE and the
+plan closed after its final serial gate passes. The latest passing gate is
+the S8 s4 step0 gate (EXIT 0, 257 evals, 0 failures; docs/VALIDATION.md).
 
 ## Implemented
-
-> Write here: one item for each feature that works. Name the former (F1 to
-> F15), the core type or the core operation.
 
 - S2 (kernel port): `src/`, `domain/`, `examples/`, `test/`, `gen/` and
   the Makefile of intent-lang ef5abe8 (by `git archive`), and the
@@ -71,23 +71,109 @@
   regime rows (AD, and the contrast row SI). In `test/run/restrict.out`,
   only the last line changes: the state shows the six Part G words. No
   src change.
+- S7 (the contract, Q-S7-1 to Q-S7-28): the port of intent-lang S8 and
+  S10 (the `Env.block` prelude, `examples/blocks.lang`,
+  `examples/daokit.lang`, `test/dao.sh`). The rules form builds
+  `allowed.bit` from the rule bits (Q-S7-2 (a)). The kit op `toNat : U256
+  -> Nat` (Nat is an ABI `uint64`): eval traps above 2^64 - 1, and the
+  lowering reverts. The `Env` field `self` lowers to ADDRESS, and the
+  constant `self` is now `selfAddr`. An open `zkHpAt` is an opaque term in
+  eval. The internal op `OP_MODEXP` (precompile 0x05) and the H_p loop
+  `lower_hp` with K = 8 tries (`RESTRICT_HP_TRIES`) give `zkHpAt` on the
+  chain. `examples/restrictkit.lang` is the deployable compliance
+  contract: the hooks, the binding, `canTransfer`, `issue` (with the
+  counter hc), `register`, `isVerified`, the init field `dao` and 7 setter
+  entries with the check `fromDao`. `examples/restrictdao.lang` is its
+  linked DAO: `propose` (the pid, the counter bounds before each `hpAt`,
+  the kind), the casts `castSig`, `castSlot` and `castSeal`, `enact` (it
+  opens the tally and, on a strict yes majority, calls one of the four
+  numeric setters by kind) and the views `pidNow` and `kindNow`. The kit
+  CALL form gives the call. `examples/natkit.lang` has the `toNat` chain
+  rows. The asmtool mode `token` is the test token. `test/restrict.sh` and
+  `test/dao.sh` have the chain, ABI, size and gas rows. The USER fix
+  525e855: `proposalValueOk` limits the durations (kinds 2 and 3) to
+  2^64 - 1.
+- S8 (the close, in progress): s1 the survey and Q-S8-1 to Q-S8-7; s2 the
+  mutants N1 to N5 (L5, L11, L12, `proposalValueOk` x2), all KILLED, thus
+  each law site of docs/PLAN.md section 5 has a mutant (S3 to S8: 80
+  KILLED, 2 equivalent, 0 SURVIVED); s3 SPEC.md, with the corrections of
+  the USER review (155d9e0); s4 docs/VALIDATION.md and this file.
+  docs/VALIDATION.md now records only the restrict-lang gates: the
+  inherited orbit-lang and intent-lang text goes (Q-S8-4 (a)). S8 does not
+  change src.
 
 ## Remaining M0 work
 
-> Write here: one numbered item for each missing feature. Say what each item
-> needs first.
-
-1. <work item>.
+1. O17: `examples/restrict.lang` gives the class map `cls` by hand (S1 =
+   {840} gives class 1, the other countries give class 0). First: a
+   change to `check_rules`, so that the rules form computes `cls` from the
+   sets of its rules (Q-S5-3 (b)).
+2. O18: a State argument to a def that holds `zkVerifyAt` adds about 6.3
+   KB of runtime, also when the body does not read it. First: a probe of
+   the cause in the lowering (S8 does not probe it, Q-S8-6 (b)).
 
 ## Known limits
 
-> Write here: one item for each limit of the current build, with its cause
-> (a fuel budget, a host limit, a stack size).
-
-- <limit>.
+- The restrictdao runtime is 23909 bytes of 24576 (EIP-170): 667 bytes
+  of room. Cause: the ballot casts, the tally open in `enact` and the H_p
+  loops are in one contract. The ballot entries do not fit in restrictkit
+  (S7 s4 probe: `castSig` alone is about 9.2 kB).
+- A credential issuer ring has 2 points per class; the DAO ballot ring
+  has 3 points. Each ring point needs an H_p counter hc <= 7 for its
+  context. Cause: the H_p loop runs K = 8 tries on the chain
+  (`RESTRICT_HP_TRIES`), and a key with no point below counter 8 traps.
+- A duration (`setLockD`, `setRegD`) is at most 2^64 - 1. Cause: Nat is
+  an ABI `uint64` (Q-S7-4), and `proposalValueOk` refuses a larger value.
+- A proposal lapses at the next `propose`. Cause: restrictdao keeps the
+  pid and the kind of one proposal (`pidNow`, `kindNow`).
+- The chain rows test the test token only (O7, `asmtool token`).
+- The contract does not serve `investorCountry` (O12). Cause: a
+  credential discloses the class only (Q5 (a)). A token or a tool that
+  calls it fails.
+- The USER review of S8 s3 (SPEC section 7, PLAN O10): the linked DAO
+  votes only on the four numeric parameters. It has no vote or call path
+  for `setIssuer`, `setPass` or `setDecided`, and it does not execute
+  charter or rule-set amendments. `isVerified` checks only the stored
+  wallet expiry, thus a ring change or a class change does not invalidate
+  a registration. The kit build of `examples/restrict.lang` gives
+  `REFUSE_LOWER` at `canTransfer`.
+- formers/tcc-evm-contract.md gives eval OPAQUE for `ecrecover`, `ecAdd`
+  and `ecMul`, but rule R17 makes a closed application compute in `langc
+  eval` (SPEC section 3, docs/VALIDATION.md "Known limits").
 
 ## Internal boundaries
 
-> Write here: one paragraph for each module group. Say which module holds
-> which job, which tests check which tables, and which types a program
-> cannot use.
+The parser (src/front): `lexer.c`, `parser.c` and `ast.h` read the text
+into the AST, with the kit forms (`rules`, the CALL form).
+
+The core (src/front): `base.c` holds the base signature, `check.c` the
+type checker and its refusal codes, `eval.c` the evaluator, the conversion
+test, quote and the printer, and `core.h` the core terms. `front.c` loads
+a program. `contract.c` holds the kit prelude, which `front_load` reads
+after domain/domain.lang as trusted text. A guest program cannot use the kit forms: the 23 kit-only rows
+give `REFUSE_KIT`.
+
+The host crypto (src/front): `u256.c` (U256 and Addr), `bn254.c` (the
+BN254 field and G1), `secp256k1.c` (the ecrecover recovery), `blsag.c`
+(bLSAG with the context word), and `elgamal.c`, `threshold.c` and
+`sigma.c` (exponential ElGamal, the threshold opening and the Sigma
+verifiers).
+
+The writer (src/front): `writer.c` gives `langc contract`, the kit text of
+the DAO in a checked guest program.
+
+The back end (src): `lower.c` lowers a checked kit program to EVM code
+(`langc build`), `evm.c` holds the EVM back end and the ABI selectors,
+`asm.c` the assembler and `keccak.c` Keccak-256. `main.c` is the `langc`
+command line (exit 0: ok, exit 1: refused, exit 2: usage or IO).
+
+The test tools (test/*.c, built with tcc and checked with clang):
+asmtool, ballottool, blsagtool, buildtool, elgamaltool, emittool, evmtool,
+fronttool, lowertool, pathtool, runtool, secptool, sigmatool, slottool,
+thresholdtool and writertool. The row directories are test/parse,
+test/check, test/eval, test/prove, test/run, test/lower and test/contract.
+
+The gate scripts (test/*.sh): `make -B check` runs gate.sh, run.sh,
+asm.sh, build.sh, dispatch.sh, evm.sh, precompile.sh, mock.sh, dao.sh,
+restrict.sh, diff.sh and review.sh in series.
+Each script prints its count lines and a gate line with 0 failures.
