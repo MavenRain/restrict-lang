@@ -1,8 +1,9 @@
-# restrict-lang specification (draft)
+# restrict-lang specification
 
-Status: S8 in progress (2026-10-27). The name is O1 (kept). The counts in
-this file are the counts of the S8 s3 step0 gate (`make -B check`, serial,
-EXIT 0). The S8 close (s5) refreshes them from its final gate.
+Status: S0 to S8 DONE, S8 CLOSED 2026-10-27; the plan is closed. The name
+is O1 (kept). The counts in this file are the counts of the S8 s5 final
+gate (`make -B check`, serial, EXIT 0). The log is byte for byte the S8
+s3 step0 log: no count changes.
 
 ## 1. Purpose
 
@@ -48,7 +49,7 @@ does not give. The gate checks each refusal by its code. The refusal
 codes of `test/check/expect.txt` are `REFUSE_AXIOM`, `REFUSE_CALL`,
 `REFUSE_CELL`, `REFUSE_DATA`, `REFUSE_EVENT`, `REFUSE_HISTORY_WRITE`,
 `REFUSE_KIT`, `REFUSE_LAW`, `REFUSE_MAP`, `REFUSE_NAME`, `REFUSE_REC`,
-`REFUSE_SIG` and `REFUSE_STATE`. The S8 s3 step0 gate checks 19 parse
+`REFUSE_SIG` and `REFUSE_STATE`. The S8 s5 final gate checks 19 parse
 refusals, 193 check refusals and 15 run refusals. Of the check refusals,
 23 are kit-only rows: `langc check` rejects them with `REFUSE_KIT`, and
 `langc --kit check` accepts them.
@@ -320,7 +321,7 @@ The deployed `register` entry verifies caller-supplied bLSAG words (3.4)
 with `ecMul`, `ecAdd`, `hash` and MODEXP. The compiler does not translate
 an arbitrary `ZKProof W` into a bLSAG verifier.
 
-Size (the S8 s3 step0 gate): the restrictdao contract
+Size (the S8 s5 final gate): the restrictdao contract
 (`examples/restrictdao.lang`, `rdao` in `test/dao.sh`) has a runtime of
 23909 bytes (limit 24576, EIP-170) and an initcode of 23949 bytes (limit
 49152).
@@ -362,7 +363,7 @@ The check on the output: `make -B check` (serial) runs the kit gate. It
 checks the examples, the refusals, the evals, the runs, the contract
 writer, the differential rows (the guest evals against the chain), the
 chain rows on the test token (Q13), the size rows and the gas rows. The S8
-s3 step0 gate: 60 examples and 0 failed, 257 evals, 28 differential guest
+s5 final gate: 60 examples and 0 failed, 257 evals, 28 differential guest
 evals, EXIT 0.
 
 ## 9. Open items
@@ -383,13 +384,13 @@ recommendations") gives Q1 to Q14 (a).
 - O5. Decidability: a rule must have a `dec` term. A rule with no `dec`
   term gives `TYPE_MISMATCH` (no dedicated code). Kept.
 - O6. The ABI names: the kit must accept the exact ICompliance names and a
-  view with no parameter (`getTokenBound()`). Done in S7: the ABI row of
-  `test/restrict.sh` checks 9 EIP selectors (S7 s4).
+  view with no parameter (`getTokenBound()`). CLOSED (S7, Q-S7-8 (a)): the
+  ABI row of `test/restrict.sh` checks 9 EIP selectors (S7 s4).
 - O7. The mirror is correct only if the token calls a hook for each
   balance change, forced transfers and recovery too. The chain rows test
   the test token only. RULED 2026-10-24 (USER): Q13 (a). Kept.
 - O8. The per-contract key image needs a hash to curve. RULED 2026-10-24
-  (USER): Q4 (a). Done in S5: `zkHpAt` (Q-S5-1 (a)). S7 s3 lowers it to
+  (USER): Q4 (a). CLOSED (S5, Q-S5-1 (a)): `zkHpAt`. S7 s3 lowers it to
   the chain (MODEXP 0x05, K = 8 tries).
 - O9. Encrypted ballots. CLOSED (S6, USER, Q-S6-1 (a)): restrict-lang
   ports the intent-lang S9 form.
@@ -438,10 +439,10 @@ The milestones are the slices of `docs/PLAN.md` section 9.
 | S5 | Part C: the class partition, the issuer rings, `register` with the per-contract key image (O8), `isVerified`, expiry; L2, L7, L8 | DONE (2026-10-25) |
 | S6 | The DAO over the rules: `Params` for each parameter, the issuer list, rule-set amendment, encrypted ballots (O9) | DONE (2026-10-25) |
 | S7 | The contract writer: the ABI of section 7, the events, the entries of Q-S6-8 (a), the chain rows on the test token (Q13) | DONE (s1 to s7, 2026-10-25 to 2026-10-27) |
-| S8 | Mutants, SPEC, VALIDATION, close | In progress: s1 and s2 DONE (2026-10-27); s3 fills this file |
+| S8 | Mutants, SPEC, VALIDATION, close | DONE (s1 to s5, 2026-10-27); CLOSED |
 
-Status (2026-10-27): S8 in progress. S8 s2 killed the mutants N1 to N5.
+Status (2026-10-27): S0 to S8 DONE. S8 s2 killed the mutants N1 to N5.
 The sum of S3 to S8 is 80 KILLED, 2 equivalent and 0 SURVIVED. S8 s3
-fills this file. S8 s4 rewrites `docs/VALIDATION.md` and `docs/STATUS.md`.
-S8 s5 closes the plan: after its final gate passes, it sets "closed at
-S8" with the date.
+filled this file. S8 s4 rewrote `docs/VALIDATION.md` and `docs/STATUS.md`.
+The S8 s5 final gate passed (EXIT 0). Closed at S8 (2026-10-27): the plan
+is closed.

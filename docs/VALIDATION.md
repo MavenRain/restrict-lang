@@ -1,13 +1,13 @@
 # Validation
 
 Date: 2026-10-27. tcc: 0.9.28rc. evm (go-ethereum): 1.14.12. Base: HEAD
-155d9e0 (the USER S8 s3 commit). S8 is in progress. The S8 close (s5)
-runs the final serial gate, refreshes each count, size row, gas row and
-chain step of this file from that log, and marks this file final.
+e6082c4 (the USER S8 s4 commit). S8 is CLOSED, and the plan is closed.
+This file is final: each count, size row, gas row and chain step comes
+from the S8 s5 final gate.
 
-The latest passing gate is the S8 s4 step0 gate
-(`~/Documents/restrict-lang-S8-s4-step0-gate.log`, 126 lines, EXIT 0). It
-is byte for byte the S8 s1, s2 and s3 step0 logs. `make -B check` builds
+The last gate is the S8 s5 final gate
+(`~/Documents/restrict-lang-S8-s5-final-gate.log`, 126 lines, EXIT 0). It
+is byte for byte the S8 s1, s2, s3 and s4 step0 logs. `make -B check` builds
 `langc` and the test tools with tcc, runs the clang `-Wall -Wextra
 -Wswitch-enum -Werror` check, and runs the gate scripts. It runs 60
 examples, 19 parse refusals, 193 check refusals (23 of them are kit-only
@@ -138,7 +138,7 @@ and the `ballottool` build, check-clang and regression lines. Mutants: 8,
   23909/23949, `rdao propose` 124712 -> 124761. The chain stays at 89
   steps. The log is `~/Documents/restrict-lang-S8-s1-step0-gate.log`.
 
-## S8: the close (2026-10-27, in progress)
+## S8: the close (2026-10-27, CLOSED)
 
 Each S8 gate log is byte for byte the s1 step0 log (126 lines, EXIT 0).
 
@@ -150,8 +150,10 @@ Each S8 gate log is byte for byte the s1 step0 log (126 lines, EXIT 0).
   USER review (155d9e0) corrects five SPEC claims and records the
   implementation limits of "Known limits" below. Docs only.
 - s4 (`~/Documents/restrict-lang-S8-s4-step0-gate.log`): this file and
-  docs/STATUS.md. Docs only.
-- s5 (next): the final serial gate and the close.
+  docs/STATUS.md. Docs only. The USER s4 commit (e6082c4) corrects the
+  ring sizes of "Known limits" in docs/STATUS.md.
+- s5 (`~/Documents/restrict-lang-S8-s5-final-gate.log`): the final serial
+  gate and the close. O6 and O8 are CLOSED (Q-S8-7 (a)). Docs only.
 
 ## Contract sizes
 

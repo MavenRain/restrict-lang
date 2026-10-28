@@ -20,7 +20,10 @@ restrict-lang comes from lang-template with the tcc-evm-contract host.
   minimal base signature, the readings of the design on Cubical TT, the
   laws, the kernel route, the contract, the slices, the open items and the
   questions.
-- `SPEC.md`: the specification. Fill each section.
+- `SPEC.md`: the specification: the purpose, the programs, the type
+  formers, the structures, the core types and operations, the target and
+  instance encoding, the host and target, the open items and the
+  milestones.
 - `formers/FORMERS.md`: the type formers. `formers/tcc-evm-contract.md` gives their
   status on the tcc-evm-contract host.
 - `probe/CAPABILITY.md`: the host probe.

@@ -1,10 +1,9 @@
 # restrict-lang status
 
-The build implements the M0 slices S0 to S7 of docs/PLAN.md section 9:
-they are DONE. S8 (the mutants, SPEC, VALIDATION and the close) is in
-progress: s1 to s4 are DONE. The close unit (S8 s5) marks S8 DONE and the
-plan closed after its final serial gate passes. The latest passing gate is
-the S8 s4 step0 gate (EXIT 0, 257 evals, 0 failures; docs/VALIDATION.md).
+The build implements the M0 slices S0 to S8 of docs/PLAN.md section 9:
+they are DONE. S8 (the mutants, SPEC, VALIDATION and the close) is CLOSED
+(2026-10-27): s1 to s5 are DONE, and the plan is closed. The last gate is
+the S8 s5 final gate (EXIT 0, 257 evals, 0 failures; docs/VALIDATION.md).
 
 ## Implemented
 
@@ -50,7 +49,7 @@ the S8 s4 step0 gate (EXIT 0, 257 evals, 0 failures; docs/VALIDATION.md).
 - S5 (Part C): the kit ops `zkHpAt`, `zkSignAt` and `zkVerifyAt`
   (`src/front/blsag.c`, `core.h`, `check.c`, `eval.c`). The context word
   goes into the hash to curve, so one credential key gives one key image
-  for each contract (O8). The old ops give the same bytes.
+  for each contract (O8, CLOSED). The old ops give the same bytes.
   `test/blsagtool.c` has the context rows. `examples/restrict.lang` adds
   the registry state (`used`, `clsOf`, `expires`, the ring slot maps), the
   class map `cls`, the entries `issue` and `register`, the view
@@ -93,14 +92,15 @@ the S8 s4 step0 gate (EXIT 0, 257 evals, 0 failures; docs/VALIDATION.md).
   `test/dao.sh` have the chain, ABI, size and gas rows. The USER fix
   525e855: `proposalValueOk` limits the durations (kinds 2 and 3) to
   2^64 - 1.
-- S8 (the close, in progress): s1 the survey and Q-S8-1 to Q-S8-7; s2 the
+- S8 (the close, CLOSED): s1 the survey and Q-S8-1 to Q-S8-7; s2 the
   mutants N1 to N5 (L5, L11, L12, `proposalValueOk` x2), all KILLED, thus
   each law site of docs/PLAN.md section 5 has a mutant (S3 to S8: 80
   KILLED, 2 equivalent, 0 SURVIVED); s3 SPEC.md, with the corrections of
   the USER review (155d9e0); s4 docs/VALIDATION.md and this file.
   docs/VALIDATION.md now records only the restrict-lang gates: the
-  inherited orbit-lang and intent-lang text goes (Q-S8-4 (a)). S8 does not
-  change src.
+  inherited orbit-lang and intent-lang text goes (Q-S8-4 (a)). s5: the
+  final serial gate (EXIT 0, byte for byte the s4 step0 log) and the close
+  (O6 and O8 CLOSED, Q-S8-7 (a)). S8 does not change src.
 
 ## Remaining M0 work
 
